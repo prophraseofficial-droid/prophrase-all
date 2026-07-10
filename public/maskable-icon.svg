@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">ProPhrase maskable icon</title>
+  <rect width="512" height="512" fill="#111111"/>
+  <circle cx="256" cy="256" r="188" fill="#fbfaf7"/>
+  <path fill="#111111" d="M158 346V146h113c42 0 74 30 74 69s-32 69-74 69h-48v62h-65Zm65-119h42c13 0 22-4 30-12 7-7 11-16 11-27s-4-20-11-27c-8-7-17-11-30-11h-42v77Z"/>
+</svg>

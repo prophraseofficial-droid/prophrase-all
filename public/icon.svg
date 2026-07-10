@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">ProPhrase icon</title>
+  <rect width="512" height="512" rx="96" fill="#111111"/>
+  <path fill="#fbfaf7" d="M146 356V132h126c47 0 82 33 82 77s-35 77-82 77h-54v70h-72Zm72-134h47c14 0 25-5 33-14 8-8 12-18 12-31s-4-23-12-31c-8-8-19-12-33-12h-47v88Zm125 134 38-56h-38v-45h89v37l-39 56h42v45h-92v-37Z"/>
+</svg>

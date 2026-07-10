@@ -1,0 +1,7 @@
+export const FREE_DAILY_REWRITE_LIMIT = 5;
+export const FREE_DAILY_THREAD_LIMIT = 3;
+export const FREE_MAX_FOLLOWUPS_PER_THREAD = 2;
+
+export const PRO_DAILY_REWRITE_LIMIT = 300;
+export const PRO_DAILY_THREAD_LIMIT = 100;
+export const PRO_MAX_MESSAGES_PER_THREAD = 50;
