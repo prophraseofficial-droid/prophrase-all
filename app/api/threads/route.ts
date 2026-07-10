@@ -9,8 +9,8 @@ import {
 } from "@/lib/security/validation";
 import { canCreateThread, incrementThreadUsage } from "@/lib/usage/usage";
 
-export async function GET() {
-  const { user, response } = await requireUser();
+export async function GET(request: Request) {
+  const { user, response } = await requireUser(request);
   if (!user) return response;
 
   try {
@@ -32,7 +32,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const { user, response } = await requireUser();
+  const { user, response } = await requireUser(request);
   if (!user) return response;
 
   const parsed = createThreadSchema.safeParse(await request.json().catch(() => null));

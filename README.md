@@ -26,5 +26,17 @@ Run the web app:
 npm run dev
 ```
 
-The V1 app stores recent rewrites only in browser `localStorage` under
-`prophrase_history`.
+## Mobile App
+
+The Expo mobile app lives in `mobile/`.
+
+```bash
+npm run mobile:install
+npm run mobile:start
+```
+
+Create `mobile/.env` from `mobile/.env.example` and point
+`EXPO_PUBLIC_API_BASE_URL` to this Next.js backend.
+
+Mobile requests use Supabase bearer tokens, so the existing backend APIs work
+for browser cookies and native mobile sessions.

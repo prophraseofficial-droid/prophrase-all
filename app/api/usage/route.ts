@@ -3,8 +3,8 @@ import { requireUser } from "@/lib/security/auth";
 import { apiError } from "@/lib/security/validation";
 import { getProfileAndUsageSummary } from "@/lib/usage/usage";
 
-export async function GET() {
-  const { user, response } = await requireUser();
+export async function GET(request: Request) {
+  const { user, response } = await requireUser(request);
   if (!user) return response;
 
   try {

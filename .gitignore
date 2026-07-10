@@ -1,5 +1,6 @@
 # dependencies
 /node_modules
+mobile/node_modules
 
 # next.js
 /.next/
@@ -11,8 +12,11 @@
 # local env files and secrets
 .env
 .env.*
+mobile/.env
+mobile/.env.*
 !.env.local.example
 !.env.example
+!mobile/.env.example
 
 # logs
 npm-debug.log*

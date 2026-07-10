@@ -19,8 +19,8 @@ async function getThreadId(context: RouteContext) {
   return parsed.success ? parsed.data : null;
 }
 
-export async function GET(_request: Request, context: RouteContext) {
-  const { user, response } = await requireUser();
+export async function GET(request: Request, context: RouteContext) {
+  const { user, response } = await requireUser(request);
   if (!user) return response;
 
   const threadId = await getThreadId(context);
@@ -56,7 +56,7 @@ export async function GET(_request: Request, context: RouteContext) {
 }
 
 export async function PATCH(request: Request, context: RouteContext) {
-  const { user, response } = await requireUser();
+  const { user, response } = await requireUser(request);
   if (!user) return response;
 
   const threadId = await getThreadId(context);
@@ -88,8 +88,8 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
 }
 
-export async function DELETE(_request: Request, context: RouteContext) {
-  const { user, response } = await requireUser();
+export async function DELETE(request: Request, context: RouteContext) {
+  const { user, response } = await requireUser(request);
   if (!user) return response;
 
   const threadId = await getThreadId(context);

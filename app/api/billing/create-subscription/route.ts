@@ -31,7 +31,7 @@ function getRazorpayErrorMessage(error: unknown) {
 }
 
 export async function POST(request: Request) {
-  const { user, response } = await requireUser();
+  const { user, response } = await requireUser(request);
   if (!user) return response;
 
   const rateLimit = checkRateLimit(`billing:create:${user.id}`, 5, 60_000);

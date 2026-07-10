@@ -19,7 +19,7 @@ const metadataSelect =
   "id, source_device_id, source_device_label, preview, status, claimed_by_device_id, claimed_by_device_label, claimed_at, expires_at, created_at";
 
 export async function GET(request: Request) {
-  const { user, response } = await requireUser();
+  const { user, response } = await requireUser(request);
   if (!user) return response;
 
   const url = new URL(request.url);
@@ -58,7 +58,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const { user, response } = await requireUser();
+  const { user, response } = await requireUser(request);
   if (!user) return response;
 
   const rateLimit = checkRateLimit(`universal-clipboard:create:${user.id}`, 30, 60_000);

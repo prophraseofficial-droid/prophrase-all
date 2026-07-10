@@ -10,7 +10,7 @@ import {
 import { registerDevice } from "@/lib/universal-clipboard";
 
 export async function POST(request: Request) {
-  const { user, response } = await requireUser();
+  const { user, response } = await requireUser(request);
   if (!user) return response;
 
   const parsed = registerDeviceSchema.safeParse(

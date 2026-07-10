@@ -1,10 +1,23 @@
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  createSupabaseBearerClient,
+  createSupabaseServerClient,
+} from "@/lib/supabase/server";
 import { apiError } from "@/lib/security/validation";
 import { ensureProfileForUser } from "@/lib/usage/usage";
 
-export async function requireUser() {
+function getBearerToken(request?: Request) {
+  const authorization = request?.headers.get("authorization");
+  const [scheme, token] = authorization?.split(" ") ?? [];
+  if (scheme?.toLowerCase() !== "bearer" || !token) return null;
+  return token.trim();
+}
+
+export async function requireUser(request?: Request) {
   try {
-    const supabase = await createSupabaseServerClient();
+    const bearerToken = getBearerToken(request);
+    const supabase = bearerToken
+      ? createSupabaseBearerClient(bearerToken)
+      : await createSupabaseServerClient();
     const {
       data: { user },
       error,

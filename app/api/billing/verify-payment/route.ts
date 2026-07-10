@@ -11,7 +11,7 @@ import {
 } from "@/lib/security/validation";
 
 export async function POST(request: Request) {
-  const { user, response } = await requireUser();
+  const { user, response } = await requireUser(request);
   if (!user) return response;
 
   const rateLimit = checkRateLimit(`billing:verify:${user.id}`, 10, 60_000);

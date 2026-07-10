@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { createClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
 
 function getPublicSupabaseEnv() {
@@ -29,6 +30,22 @@ export async function createSupabaseServerClient() {
         } catch {
           // Server Components cannot set cookies. Route handlers and middleware can.
         }
+      },
+    },
+  });
+}
+
+export function createSupabaseBearerClient(accessToken: string) {
+  const { url, anonKey } = getPublicSupabaseEnv();
+
+  return createClient(url, anonKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+    global: {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
       },
     },
   });

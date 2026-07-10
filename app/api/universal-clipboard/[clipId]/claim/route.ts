@@ -24,7 +24,7 @@ const claimSelect =
   "id, source_device_id, source_device_label, payload, preview, status, claimed_by_device_id, claimed_by_device_label, claimed_at, expires_at, created_at";
 
 export async function POST(request: Request, context: RouteContext) {
-  const { user, response } = await requireUser();
+  const { user, response } = await requireUser(request);
   if (!user) return response;
 
   const { clipId } = await context.params;

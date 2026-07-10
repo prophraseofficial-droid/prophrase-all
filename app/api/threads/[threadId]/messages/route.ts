@@ -22,7 +22,7 @@ type RouteContext = {
 };
 
 export async function POST(request: Request, context: RouteContext) {
-  const { user, response } = await requireUser();
+  const { user, response } = await requireUser(request);
   if (!user) return response;
 
   const rateLimit = checkRateLimit(`message:${user.id}`, 20, 60_000);

@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "ProPhrase",
+    "slug": "prophrase",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "../public/prophrase-app-icon-1024.png",
+    "scheme": "prophrase",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.prophrase.app"
+    },
+    "android": {
+      "package": "com.prophrase.app",
+      "adaptiveIcon": {
+        "foregroundImage": "../public/prophrase-app-icon-512.png",
+        "backgroundColor": "#FAF9F6"
+      }
+    },
+    "plugins": [
+      "expo-secure-store"
+    ]
+  }
+}

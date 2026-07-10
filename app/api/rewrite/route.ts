@@ -17,7 +17,7 @@ import {
 } from "@/lib/usage/usage";
 
 export async function POST(request: Request) {
-  const { user, response } = await requireUser();
+  const { user, response } = await requireUser(request);
   if (!user) return response;
 
   const rateLimit = checkRateLimit(`rewrite:${user.id}`, 20, 60_000);
