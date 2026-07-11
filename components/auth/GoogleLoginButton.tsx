@@ -1,7 +1,42 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { getPublicAppUrl } from "@/lib/app-config";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+
+type GoogleCredentialResponse = {
+  credential?: string;
+};
+
+type GoogleAccountsId = {
+  initialize: (config: {
+    client_id: string;
+    callback: (response: GoogleCredentialResponse) => void;
+  }) => void;
+  renderButton: (
+    parent: HTMLElement,
+    options: {
+      shape?: "pill" | "rectangular" | "circle" | "square";
+      size?: "large" | "medium" | "small";
+      text?: "signin_with" | "signup_with" | "continue_with" | "signin";
+      theme?: "outline" | "filled_blue" | "filled_black";
+      type?: "standard" | "icon";
+      width?: string;
+    },
+  ) => void;
+};
+
+declare global {
+  interface Window {
+    google?: {
+      accounts?: {
+        id?: GoogleAccountsId;
+      };
+    };
+  }
+}
+
+const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 
 function GoogleMark() {
   return (
@@ -27,8 +62,83 @@ function GoogleMark() {
 }
 
 export function GoogleLoginButton() {
+  const googleButtonRef = useRef<HTMLDivElement>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [googleButtonReady, setGoogleButtonReady] = useState(false);
+
+  useEffect(() => {
+    if (!googleClientId || !googleButtonRef.current) return;
+
+    const clientId = googleClientId;
+    let cancelled = false;
+
+    async function handleCredential(response: GoogleCredentialResponse) {
+      setIsLoading(true);
+      setError("");
+
+      try {
+        if (!response.credential) {
+          throw new Error("Google did not return an identity token.");
+        }
+
+        const supabase = createSupabaseBrowserClient();
+        const { error: authError } = await supabase.auth.signInWithIdToken({
+          provider: "google",
+          token: response.credential,
+        });
+
+        if (authError) throw authError;
+
+        window.location.href = "/workspace";
+      } catch {
+        setError("Unable to complete Google sign-in. Please check configuration.");
+        setIsLoading(false);
+      }
+    }
+
+    function renderGoogleButton() {
+      if (cancelled || !googleButtonRef.current || !window.google?.accounts?.id) {
+        return;
+      }
+
+      googleButtonRef.current.innerHTML = "";
+      window.google.accounts.id.initialize({
+        client_id: clientId,
+        callback: (response) => void handleCredential(response),
+      });
+      window.google.accounts.id.renderButton(googleButtonRef.current, {
+        shape: "pill",
+        size: "large",
+        text: "continue_with",
+        theme: "outline",
+        type: "standard",
+        width: "360",
+      });
+      setGoogleButtonReady(true);
+    }
+
+    if (window.google?.accounts?.id) {
+      renderGoogleButton();
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const script = document.createElement("script");
+    script.async = true;
+    script.defer = true;
+    script.src = "https://accounts.google.com/gsi/client";
+    script.onload = renderGoogleButton;
+    script.onerror = () => {
+      if (!cancelled) setError("Unable to load Google sign-in.");
+    };
+    document.head.appendChild(script);
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function signInWithGoogle() {
     setIsLoading(true);
@@ -36,7 +146,7 @@ export function GoogleLoginButton() {
 
     try {
       const supabase = createSupabaseBrowserClient();
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+      const appUrl = getPublicAppUrl(window.location.origin);
       const { error: authError } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
@@ -55,15 +165,28 @@ export function GoogleLoginButton() {
 
   return (
     <div className="space-y-3">
-      <button
-        className="flex w-full items-center justify-center gap-3 rounded-full border border-border-subtle bg-white py-4 text-sm font-medium leading-5 text-primary transition-colors hover:bg-surface active:scale-[0.98] disabled:cursor-wait disabled:opacity-70"
-        disabled={isLoading}
-        onClick={() => void signInWithGoogle()}
-        type="button"
-      >
-        <GoogleMark />
-        {isLoading ? "Opening Google..." : "Continue with Google"}
-      </button>
+      {googleClientId ? (
+        <div
+          className="flex min-h-[54px] w-full items-center justify-center rounded-full border border-border-subtle bg-white px-2 py-2"
+          ref={googleButtonRef}
+        >
+          {!googleButtonReady ? (
+            <span className="text-sm font-medium leading-5 text-text-muted">
+              Loading Google...
+            </span>
+          ) : null}
+        </div>
+      ) : (
+        <button
+          className="flex w-full items-center justify-center gap-3 rounded-full border border-border-subtle bg-white py-4 text-sm font-medium leading-5 text-primary transition-colors hover:bg-surface active:scale-[0.98] disabled:cursor-wait disabled:opacity-70"
+          disabled={isLoading}
+          onClick={() => void signInWithGoogle()}
+          type="button"
+        >
+          <GoogleMark />
+          {isLoading ? "Opening Google..." : "Continue with Google"}
+        </button>
+      )}
       {error ? <p className="text-center text-sm text-red-700">{error}</p> : null}
     </div>
   );

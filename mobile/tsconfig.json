@@ -19,5 +19,6 @@
     "src/**/*.ts",
     "src/**/*.tsx",
     "index.js"
-  ]
+  ],
+  "extends": "expo/tsconfig.base"
 }

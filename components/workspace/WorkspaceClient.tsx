@@ -305,6 +305,7 @@ export function WorkspaceClient() {
   const [universalMessage, setUniversalMessage] = useState("");
   const [universalBusy, setUniversalBusy] = useState(false);
   const accountMenuRef = useRef<HTMLDivElement>(null);
+  const mobileAccountMenuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<InstanceType<SpeechRecognitionConstructor> | null>(
     null,
@@ -590,8 +591,8 @@ export function WorkspaceClient() {
   useEffect(() => {
     function closeAccountMenu(event: MouseEvent) {
       if (
-        accountMenuRef.current &&
-        !accountMenuRef.current.contains(event.target as Node)
+        !accountMenuRef.current?.contains(event.target as Node) &&
+        !mobileAccountMenuRef.current?.contains(event.target as Node)
       ) {
         setAccountMenuOpen(false);
         setProfileOpen(false);
@@ -980,8 +981,8 @@ export function WorkspaceClient() {
   }
 
   return (
-    <main className="flex h-screen overflow-hidden bg-[#faf9f6] text-[#1a1c1a]">
-      <aside className="flex w-72 shrink-0 flex-col border-r border-border-subtle bg-surface px-4 py-5">
+    <main className="flex h-[100dvh] flex-col overflow-hidden bg-[#faf9f6] text-[#1a1c1a] md:flex-row">
+      <aside className="hidden w-72 shrink-0 flex-col border-r border-border-subtle bg-surface px-4 py-5 md:flex">
         <Link className="mb-6 flex items-center gap-3 px-2" href="/">
           <Image
             src="/prophrase-logo.png"
@@ -1199,11 +1200,99 @@ export function WorkspaceClient() {
         </div>
       </aside>
 
-      <section className="relative flex flex-1 flex-col overflow-hidden bg-[#faf9f6]">
+      <section className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[#faf9f6]">
+        <div
+          className="shrink-0 border-b border-border-subtle bg-surface/95 px-4 py-3 backdrop-blur md:hidden"
+          ref={mobileAccountMenuRef}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <Link className="flex min-w-0 items-center gap-2" href="/">
+              <Image
+                src="/prophrase-logo.png"
+                alt="ProPhrase"
+                width={30}
+                height={30}
+                className="h-8 w-8 rounded-md object-cover"
+                priority
+              />
+              <span className="truncate text-xl font-bold leading-7 text-primary">
+                ProPhrase
+              </span>
+            </Link>
+            <button
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#ffd88e] text-sm font-bold text-[#261900]"
+              onClick={() => setAccountMenuOpen((open) => !open)}
+              type="button"
+            >
+              {userInitial}
+            </button>
+          </div>
+
+          {accountMenuOpen ? (
+            <div className="mt-3 rounded-2xl border border-border-subtle bg-white p-3 shadow-lg">
+              <p className="truncate text-sm font-semibold leading-5 text-primary">
+                {userName}
+              </p>
+              {userEmail ? (
+                <p className="truncate text-xs leading-5 text-text-muted">
+                  {userEmail}
+                </p>
+              ) : null}
+              <div className="mt-3 flex items-center justify-between gap-3 rounded-xl bg-surface-container-low px-3 py-2 text-xs font-semibold text-text-muted">
+                <span>{usage?.isPro ? "Plan" : "Credits"}</span>
+                <span className="text-primary">
+                  {usage?.isPro
+                    ? "Pro"
+                    : usage
+                      ? `${usage.rewriteRemaining} left`
+                      : "Loading"}
+                </span>
+              </div>
+              <div className="mt-2 flex gap-2">
+                <Link
+                  className="flex-1 rounded-xl border border-border-subtle px-3 py-2 text-center text-xs font-semibold text-primary"
+                  href="/pricing"
+                >
+                  Plan
+                </Link>
+                <button
+                  className="flex-1 rounded-xl bg-primary px-3 py-2 text-xs font-semibold text-white"
+                  onClick={() => void signOut()}
+                  type="button"
+                >
+                  Logout
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          <nav className="mt-3 grid grid-cols-3 gap-2">
+            {sidebarItems.map((item) => {
+              const isActive = activeView === item.view;
+
+              return (
+                <button
+                  className={
+                    isActive
+                      ? "flex h-11 items-center justify-center gap-2 rounded-xl bg-primary px-2 text-xs font-semibold text-white"
+                      : "flex h-11 items-center justify-center gap-2 rounded-xl border border-border-subtle bg-white px-2 text-xs font-semibold text-text-muted"
+                  }
+                  key={item.label}
+                  onClick={() => setActiveView(item.view)}
+                  type="button"
+                >
+                  <Icon className="text-base" name={item.icon} />
+                  <span className="truncate">{item.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+
         {activeView === "rewrite" ? (
           <>
-            <div className="sticky top-0 z-10 flex w-full items-center justify-center bg-[#faf9f6]/70 px-5 py-6 backdrop-blur-md md:px-10">
-              <div className="flex max-w-full flex-wrap items-center justify-center gap-2 overflow-x-auto rounded-full border border-border-subtle bg-surface-container-low p-1.5">
+            <div className="sticky top-0 z-10 flex w-full items-center justify-start bg-[#faf9f6]/70 px-4 py-3 backdrop-blur-md md:justify-center md:px-10 md:py-6">
+              <div className="flex max-w-full items-center justify-start gap-2 overflow-x-auto rounded-full border border-border-subtle bg-surface-container-low p-1.5 md:flex-wrap md:justify-center">
                 {tones.map((tone) => {
                   const isSelected = selectedTone === tone;
 
@@ -1212,8 +1301,8 @@ export function WorkspaceClient() {
                       aria-pressed={isSelected}
                       className={
                         isSelected
-                          ? "rounded-full bg-primary px-5 py-2 text-sm font-medium leading-5 text-white shadow-md transition-all"
-                          : "rounded-full px-5 py-2 text-sm font-medium leading-5 text-text-muted transition-all hover:bg-surface-container"
+                          ? "shrink-0 rounded-full bg-primary px-4 py-2 text-sm font-medium leading-5 text-white shadow-md transition-all md:px-5"
+                          : "shrink-0 rounded-full px-4 py-2 text-sm font-medium leading-5 text-text-muted transition-all hover:bg-surface-container md:px-5"
                       }
                       disabled={isLoading}
                       key={tone}
@@ -1227,14 +1316,14 @@ export function WorkspaceClient() {
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-5 py-8 pb-48 md:px-10">
+            <div className="flex-1 overflow-y-auto px-4 py-6 pb-40 md:px-10 md:py-8 md:pb-48">
               <div className="mx-auto flex max-w-3xl flex-col gap-8">
                 {hasStoredConversation ? (
                   <>
                     {threadMessages.map((message) =>
                       message.role === "user" ? (
                         <div className="flex flex-col items-end gap-2" key={message.id}>
-                          <div className="message-shadow max-w-[85%] rounded-2xl rounded-tr-none border border-border-subtle bg-surface-container px-6 py-4">
+                          <div className="message-shadow max-w-[92%] rounded-2xl rounded-tr-none border border-border-subtle bg-surface-container px-4 py-3 md:max-w-[85%] md:px-6 md:py-4">
                             <p className="whitespace-pre-wrap text-base leading-6 text-[#1a1c1a]">
                               {message.content}
                             </p>
@@ -1253,7 +1342,7 @@ export function WorkspaceClient() {
                               ProPhrase AI
                             </span>
                           </div>
-                          <div className="message-shadow relative max-w-[85%] overflow-hidden rounded-2xl rounded-tl-none border border-border-subtle bg-white px-6 py-4">
+                          <div className="message-shadow relative max-w-[92%] overflow-hidden rounded-2xl rounded-tl-none border border-border-subtle bg-white px-4 py-3 md:max-w-[85%] md:px-6 md:py-4">
                             <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-ai-purple/5 to-transparent" />
                             <p className="relative z-10 whitespace-pre-wrap text-base leading-relaxed text-[#1a1c1a]">
                               {message.content}
@@ -1290,7 +1379,7 @@ export function WorkspaceClient() {
                       <>
                         {lastInput ? (
                           <div className="flex flex-col items-end gap-2">
-                            <div className="message-shadow max-w-[85%] rounded-2xl rounded-tr-none border border-border-subtle bg-surface-container px-6 py-4">
+                            <div className="message-shadow max-w-[92%] rounded-2xl rounded-tr-none border border-border-subtle bg-surface-container px-4 py-3 md:max-w-[85%] md:px-6 md:py-4">
                               <p className="whitespace-pre-wrap text-base leading-6 text-[#1a1c1a]">
                                 {lastInput}
                               </p>
@@ -1309,7 +1398,7 @@ export function WorkspaceClient() {
                               ProPhrase AI
                             </span>
                           </div>
-                          <div className="message-shadow max-w-[85%] rounded-2xl rounded-tl-none border border-border-subtle bg-white px-6 py-4">
+                          <div className="message-shadow max-w-[92%] rounded-2xl rounded-tl-none border border-border-subtle bg-white px-4 py-3 md:max-w-[85%] md:px-6 md:py-4">
                             <p className="text-base leading-relaxed text-[#1a1c1a]">
                               {processingStep}
                               <span className="ml-1 inline-flex w-5 justify-between align-middle">
@@ -1327,7 +1416,7 @@ export function WorkspaceClient() {
                   <>
                     {lastInput ? (
                       <div className="flex flex-col items-end gap-2">
-                        <div className="message-shadow max-w-[85%] rounded-2xl rounded-tr-none border border-border-subtle bg-surface-container px-6 py-4">
+                        <div className="message-shadow max-w-[92%] rounded-2xl rounded-tr-none border border-border-subtle bg-surface-container px-4 py-3 md:max-w-[85%] md:px-6 md:py-4">
                           <p className="whitespace-pre-wrap text-base leading-6 text-[#1a1c1a]">
                             {lastInput}
                           </p>
@@ -1348,7 +1437,7 @@ export function WorkspaceClient() {
                             ProPhrase AI
                           </span>
                         </div>
-                        <div className="message-shadow group relative max-w-[85%] overflow-hidden rounded-2xl rounded-tl-none border border-border-subtle bg-white px-6 py-4">
+                        <div className="message-shadow group relative max-w-[92%] overflow-hidden rounded-2xl rounded-tl-none border border-border-subtle bg-white px-4 py-3 md:max-w-[85%] md:px-6 md:py-4">
                           <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-ai-purple/5 to-transparent" />
                           <p className="relative z-10 whitespace-pre-wrap text-base leading-relaxed text-[#1a1c1a]">
                             {isLoading ? processingStep : outputText}
@@ -1499,17 +1588,17 @@ export function WorkspaceClient() {
             </div>
 
             <div
-              className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-5 md:p-8"
+              className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-3 md:p-8"
               id="composer"
             >
-              <div className="glass-effect pointer-events-auto flex w-full max-w-3xl items-center gap-2 rounded-[28px] border border-border-subtle p-3 shadow-2xl ring-1 ring-black/5 transition-all focus-within:border-accent-warm/70 focus-within:ring-2 focus-within:ring-accent-warm/25">
+              <div className="glass-effect pointer-events-auto flex w-full max-w-3xl items-center gap-1.5 rounded-[24px] border border-border-subtle p-2.5 shadow-2xl ring-1 ring-black/5 transition-all focus-within:border-accent-warm/70 focus-within:ring-2 focus-within:ring-accent-warm/25 md:gap-2 md:rounded-[28px] md:p-3">
                 <button
                   aria-label={isListening ? "Stop voice input" : "Start voice input"}
                   aria-pressed={isListening}
                   className={
                     isListening
-                      ? "rounded-2xl bg-primary p-3 text-white transition-all"
-                      : "rounded-2xl p-3 text-text-muted transition-all hover:bg-surface-container hover:text-primary"
+                      ? "rounded-2xl bg-primary p-2.5 text-white transition-all md:p-3"
+                      : "rounded-2xl p-2.5 text-text-muted transition-all hover:bg-surface-container hover:text-primary md:p-3"
                   }
                   disabled={
                     isLoading ||
@@ -1569,12 +1658,12 @@ export function WorkspaceClient() {
                     <Icon className="text-2xl" name="attach" />
                   </button>
                   <button
-                    className="flex items-center gap-2 rounded-2xl bg-primary px-5 py-3 text-sm font-medium leading-5 text-white shadow-lg transition-all hover:scale-[1.02] active:scale-95 disabled:cursor-wait disabled:opacity-60"
+                    className="flex items-center gap-2 rounded-2xl bg-primary px-3 py-3 text-sm font-medium leading-5 text-white shadow-lg transition-all hover:scale-[1.02] active:scale-95 disabled:cursor-wait disabled:opacity-60 md:px-5"
                     disabled={isLoading}
                     onClick={() => void rewriteMessage()}
                     type="button"
                   >
-                    <span>{isLoading ? "Writing" : "Rewrite"}</span>
+                    <span className="hidden sm:inline">{isLoading ? "Writing" : "Rewrite"}</span>
                     <Icon className="text-xl" name="spark" />
                   </button>
                 </div>
@@ -1584,7 +1673,7 @@ export function WorkspaceClient() {
         ) : null}
 
         {activeView === "history" ? (
-          <div className="h-full overflow-y-auto px-10 py-10">
+          <div className="h-full overflow-y-auto px-4 py-6 md:px-10 md:py-10">
             <div className="mx-auto max-w-3xl">
               <div className="mb-6 flex items-center justify-between gap-4">
                 <div>
@@ -1631,7 +1720,7 @@ export function WorkspaceClient() {
         ) : null}
 
         {activeView === "templates" ? (
-          <div className="h-full overflow-y-auto px-10 py-10">
+          <div className="h-full overflow-y-auto px-4 py-6 md:px-10 md:py-10">
             <div className="mx-auto max-w-4xl">
               <h1 className="text-3xl font-bold text-primary">Templates</h1>
               <p className="mt-2 text-sm leading-6 text-text-muted">

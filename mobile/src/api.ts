@@ -6,8 +6,9 @@ import type {
   UniversalClipboardMetadata,
   UsageSummary,
 } from "./types";
+import { appConfig } from "./config";
 
-const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:3000";
+const apiBaseUrl = appConfig.apiBaseUrl;
 
 type ApiError = {
   error?: string;

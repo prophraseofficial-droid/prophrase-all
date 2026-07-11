@@ -1,6 +1,9 @@
 import { StatusBar } from "expo-status-bar";
+import { makeRedirectUri } from "expo-auth-session";
+import * as Google from "expo-auth-session/providers/google";
 import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
+import * as WebBrowser from "expo-web-browser";
 import type { Session } from "@supabase/supabase-js";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
@@ -26,6 +29,7 @@ import {
   rewriteMessage,
   startSubscription,
 } from "./api";
+import { appConfig } from "./config";
 import { getDeviceLabel, getOrCreateDeviceId } from "./device";
 import { supabase } from "./supabase";
 import { colors, shadow, spacing } from "./theme";
@@ -38,6 +42,8 @@ import type {
   UsageSummary,
   ViewName,
 } from "./types";
+
+WebBrowser.maybeCompleteAuthSession();
 
 const tones: Tone[] = [
   "Professional",
@@ -55,6 +61,15 @@ const bugTemplate: RewriteTemplate = {
   body:
     "I found the issue and am working on the fix now. I will share an update once the patch is ready for review.",
 };
+
+function getAuthRedirectUrl() {
+  if (appConfig.authRedirectUrl) return appConfig.authRedirectUrl;
+
+  return makeRedirectUri({
+    scheme: "prophrase",
+    path: "auth/callback",
+  });
+}
 
 function initialFromName(name: string) {
   return name.trim().charAt(0).toUpperCase() || "P";
@@ -101,6 +116,38 @@ function Button({
       >
         {title}
       </Text>
+    </Pressable>
+  );
+}
+
+function GoogleButton({
+  disabled,
+  loading,
+  onPress,
+}: {
+  disabled: boolean;
+  loading: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel="Continue with Google"
+      accessibilityRole="button"
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.googleButton,
+        pressed && !disabled ? styles.pressed : null,
+        disabled ? styles.disabled : null,
+      ]}
+    >
+      <View style={styles.googleMark}>
+        <Text style={styles.googleMarkText}>G</Text>
+      </View>
+      <Text style={styles.googleButtonText}>
+        {loading ? "Connecting to Google..." : "Continue with Google"}
+      </Text>
+      <View style={styles.googleButtonSpacer} />
     </Pressable>
   );
 }
@@ -232,11 +279,13 @@ function OnboardingGetStarted({
   email,
   setEmail,
   authLoading,
+  onGoogle,
   onStart,
 }: {
   email: string;
   setEmail: (email: string) => void;
-  authLoading: boolean;
+  authLoading: "google" | "magic" | null;
+  onGoogle: () => void;
   onStart: () => void;
 }) {
   return (
@@ -251,6 +300,16 @@ function OnboardingGetStarted({
           Sign in with the same ProPhrase account to sync history, templates, usage,
           and Universal Copy.
         </Text>
+        <GoogleButton
+          disabled={authLoading !== null}
+          loading={authLoading === "google"}
+          onPress={onGoogle}
+        />
+        <View style={styles.authDivider}>
+          <View style={styles.authDividerLine} />
+          <Text style={styles.authDividerText}>or continue with email</Text>
+          <View style={styles.authDividerLine} />
+        </View>
         <TextInput
           autoCapitalize="none"
           autoCorrect={false}
@@ -262,8 +321,8 @@ function OnboardingGetStarted({
           value={email}
         />
         <Button
-          disabled={authLoading || !email.trim()}
-          title={authLoading ? "Sending magic link..." : "Send magic link"}
+          disabled={authLoading !== null || !email.trim()}
+          title={authLoading === "magic" ? "Sending magic link..." : "Send magic link"}
           onPress={onStart}
         />
         <Text style={styles.finePrint}>
@@ -879,7 +938,7 @@ function MainApp({
 export default function App() {
   const [screen, setScreen] = useState<ViewName>("splash");
   const [email, setEmail] = useState("");
-  const [authLoading, setAuthLoading] = useState(false);
+  const [authLoading, setAuthLoading] = useState<"google" | "magic" | null>(null);
   const [session, setSession] = useState<AppSession | null>(null);
   const [selectedTone, setSelectedTone] = useState<Tone>("Professional");
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
@@ -887,6 +946,20 @@ export default function App() {
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [deviceId, setDeviceId] = useState("");
   const [deviceLabel, setDeviceLabel] = useState("Mobile device");
+  const googleClientId =
+    Platform.OS === "ios"
+      ? appConfig.googleIosClientId
+      : Platform.OS === "android"
+        ? appConfig.googleAndroidClientId
+        : appConfig.googleWebClientId;
+  const hasNativeGoogleClient = Boolean(googleClientId);
+  const [googleRequest, , promptGoogleAsync] = Google.useAuthRequest({
+    androidClientId: appConfig.googleAndroidClientId || undefined,
+    clientId: googleClientId || "missing-native-google-client-id",
+    iosClientId: appConfig.googleIosClientId || undefined,
+    selectAccount: true,
+    webClientId: appConfig.googleWebClientId || undefined,
+  });
 
   useEffect(() => {
     const timer = setTimeout(() => setScreen("onboarding-value"), 1100);
@@ -935,15 +1008,13 @@ export default function App() {
 
   useEffect(() => {
     async function handleUrl(url: string) {
-      const parsed = Linking.parse(url);
-      const code = parsed.queryParams?.code;
-      if (typeof code === "string") {
-        const { data, error } = await supabase.auth.exchangeCodeForSession(code);
-        if (error) {
-          Alert.alert("Sign in failed", error.message);
-          return;
-        }
-        if (data.session) await hydrateFromSession(data.session);
+      try {
+        await createSessionFromUrl(url);
+      } catch (error) {
+        Alert.alert(
+          "Sign in failed",
+          error instanceof Error ? error.message : "Unable to complete sign in.",
+        );
       }
     }
 
@@ -957,6 +1028,35 @@ export default function App() {
 
     return () => subscription.remove();
   }, []);
+
+  async function createSessionFromUrl(url: string) {
+    const query = url.includes("?")
+      ? url.slice(url.indexOf("?") + 1).split("#")[0]
+      : "";
+    const fragment = url.includes("#") ? url.slice(url.indexOf("#") + 1) : "";
+    const params = new URLSearchParams(
+      [query, fragment].filter(Boolean).join("&"),
+    );
+    const authError = params.get("error_description") ?? params.get("error");
+    if (authError) throw new Error(authError);
+
+    const code = params.get("code");
+    if (code) {
+      const { error } = await supabase.auth.exchangeCodeForSession(code);
+      if (error) throw error;
+      return;
+    }
+
+    const accessToken = params.get("access_token");
+    const refreshToken = params.get("refresh_token");
+    if (!accessToken || !refreshToken) return;
+
+    const { error } = await supabase.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+    });
+    if (error) throw error;
+  }
 
   async function hydrateFromSession(nextSession: Session) {
     const metadata = nextSession.user.user_metadata ?? {};
@@ -992,19 +1092,77 @@ export default function App() {
   async function sendMagicLink() {
     const trimmedEmail = email.trim();
     if (!trimmedEmail) return;
-    setAuthLoading(true);
+    setAuthLoading("magic");
     const { error } = await supabase.auth.signInWithOtp({
       email: trimmedEmail,
       options: {
-        emailRedirectTo: Linking.createURL("auth/callback"),
+        emailRedirectTo: getAuthRedirectUrl(),
       },
     });
-    setAuthLoading(false);
+    setAuthLoading(null);
     if (error) {
       Alert.alert("Sign in failed", error.message);
       return;
     }
     Alert.alert("Check your email", "Open the magic link on this phone to continue.");
+  }
+
+  async function signInWithGoogle() {
+    if (hasNativeGoogleClient && googleRequest) {
+      setAuthLoading("google");
+      try {
+        const result = await promptGoogleAsync();
+        if (result.type !== "success") return;
+
+        const idToken =
+          result.authentication?.idToken ?? result.params.id_token ?? "";
+        if (!idToken) {
+          throw new Error("Google did not return an identity token.");
+        }
+
+        const { error } = await supabase.auth.signInWithIdToken({
+          provider: "google",
+          token: idToken,
+        });
+        if (error) throw error;
+      } catch (error) {
+        Alert.alert(
+          "Google sign-in failed",
+          error instanceof Error ? error.message : "Please try again.",
+        );
+      } finally {
+        setAuthLoading(null);
+      }
+      return;
+    }
+
+    const redirectTo = getAuthRedirectUrl();
+
+    setAuthLoading("google");
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo,
+          skipBrowserRedirect: true,
+          queryParams: { prompt: "select_account" },
+        },
+      });
+      if (error) throw error;
+      if (!data.url) throw new Error("Google sign-in could not be started.");
+
+      const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+      if (result.type === "success") {
+        await createSessionFromUrl(result.url);
+      }
+    } catch (error) {
+      Alert.alert(
+        "Google sign-in failed",
+        error instanceof Error ? error.message : "Please try again.",
+      );
+    } finally {
+      setAuthLoading(null);
+    }
   }
 
   async function signOut() {
@@ -1040,6 +1198,7 @@ export default function App() {
             email={email}
             setEmail={setEmail}
             authLoading={authLoading}
+            onGoogle={signInWithGoogle}
             onStart={sendMagicLink}
           />
         ) : (
@@ -1211,6 +1370,55 @@ const styles = StyleSheet.create({
     minHeight: 54,
     color: colors.text,
     fontSize: 16,
+  },
+  googleButton: {
+    minHeight: 54,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 18,
+    backgroundColor: colors.surfaceCard,
+    paddingHorizontal: 16,
+  },
+  googleMark: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+  },
+  googleMarkText: {
+    color: "#4285F4",
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  googleButtonText: {
+    color: colors.primary,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  googleButtonSpacer: {
+    width: 28,
+  },
+  authDivider: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  authDividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: colors.border,
+  },
+  authDividerText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "700",
   },
   finePrint: {
     color: colors.muted,

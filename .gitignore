@@ -1,6 +1,8 @@
 # dependencies
 /node_modules
 mobile/node_modules
+mobile/.expo
+mobile/Expo-Go-*.app/
 
 # next.js
 /.next/
