@@ -65,21 +65,30 @@ export function PublicHeader({
             Examples
           </Link>
           {isAuthenticated ? null : (
-            <Link
+            <a
               className="text-sm font-medium leading-5 text-text-muted transition-colors hover:text-primary"
               href="/login"
             >
               Login
-            </Link>
+            </a>
           )}
         </nav>
         <div className="flex items-center gap-3">
-          <Link
-            className="rounded-full bg-primary px-6 py-2 text-sm font-medium leading-5 text-on-primary transition-all hover:opacity-90 active:scale-95"
-            href={appHref}
-          >
-            {resolvedCtaLabel}
-          </Link>
+          {isAuthenticated ? (
+            <Link
+              className="rounded-full bg-primary px-6 py-2 text-sm font-medium leading-5 text-on-primary transition-all hover:opacity-90 active:scale-95"
+              href={appHref}
+            >
+              {resolvedCtaLabel}
+            </Link>
+          ) : (
+            <a
+              className="rounded-full bg-primary px-6 py-2 text-sm font-medium leading-5 text-on-primary transition-all hover:opacity-90 active:scale-95"
+              href={appHref}
+            >
+              {resolvedCtaLabel}
+            </a>
+          )}
           {isAuthenticated ? (
             <PublicUserMenu userEmail={userEmail} userName={userName} />
           ) : null}
