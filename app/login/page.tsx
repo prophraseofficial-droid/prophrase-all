@@ -1,26 +1,9 @@
 import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { EmailLoginForm } from "@/components/auth/EmailLoginForm";
 import { GoogleLoginButton } from "@/components/auth/GoogleLoginButton";
 import { getCurrentUser } from "@/lib/supabase/server";
-
-function ArrowRight() {
-  return (
-    <svg
-      aria-hidden="true"
-      className="h-[18px] w-[18px] transition-transform group-hover:translate-x-1"
-      fill="none"
-      stroke="currentColor"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="2"
-      viewBox="0 0 24 24"
-    >
-      <path d="M5 12h14" />
-      <path d="m13 6 6 6-6 6" />
-    </svg>
-  );
-}
 
 export default async function LoginPage() {
   const user = await getCurrentUser();
@@ -124,30 +107,8 @@ export default async function LoginPage() {
               </p>
             </div>
 
-            <form action="/workspace" className="space-y-6">
-              <div className="space-y-2">
-                <label
-                  className="block px-1 text-sm font-medium leading-5 text-primary"
-                  htmlFor="email"
-                >
-                  Email address
-                </label>
-                <input
-                  className="w-full rounded-full border border-border-subtle bg-white px-5 py-3.5 text-base leading-6 text-primary outline-none transition-all placeholder:text-text-muted focus:border-ai-purple focus:ring-2 focus:ring-ai-purple/20"
-                  id="email"
-                  name="email"
-                  placeholder="name@company.com"
-                  type="email"
-                />
-              </div>
-
-              <button
-                className="group flex w-full items-center justify-center gap-2 rounded-full bg-primary py-4 text-sm font-medium leading-5 text-on-primary transition-all hover:opacity-90 active:scale-[0.98]"
-                type="submit"
-              >
-                Continue
-                <ArrowRight />
-              </button>
+            <div className="space-y-6">
+              <EmailLoginForm />
 
               <div className="relative flex items-center justify-center py-4">
                 <div className="absolute inset-0 flex items-center">
@@ -159,7 +120,7 @@ export default async function LoginPage() {
               </div>
 
               <GoogleLoginButton />
-            </form>
+            </div>
 
             <div className="mt-8 text-center">
               <p className="text-sm font-medium leading-5 text-text-muted">

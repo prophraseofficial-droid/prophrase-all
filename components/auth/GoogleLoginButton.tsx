@@ -64,14 +64,33 @@ function GoogleMark() {
 export function GoogleLoginButton() {
   const googleButtonRef = useRef<HTMLDivElement>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(() => {
+    if (typeof window === "undefined") return "";
+    const authError = new URLSearchParams(window.location.search).get("auth_error");
+    return authError ? "Unable to complete sign-in. Please try again." : "";
+  });
   const [googleButtonReady, setGoogleButtonReady] = useState(false);
+  const [fallbackAvailable, setFallbackAvailable] = useState(false);
+
+  function getSafeNextPath() {
+    const params = new URLSearchParams(window.location.search);
+    const next = params.get("next");
+
+    if (!next || !next.startsWith("/") || next.startsWith("//")) {
+      return "/workspace";
+    }
+
+    return next;
+  }
 
   useEffect(() => {
     if (!googleClientId || !googleButtonRef.current) return;
 
     const clientId = googleClientId;
     let cancelled = false;
+    const fallbackTimer = window.setTimeout(() => {
+      if (!cancelled) setFallbackAvailable(true);
+    }, 3500);
 
     async function handleCredential(response: GoogleCredentialResponse) {
       setIsLoading(true);
@@ -90,9 +109,21 @@ export function GoogleLoginButton() {
 
         if (authError) throw authError;
 
-        window.location.href = "/workspace";
+        const {
+          data: { session },
+          error: sessionError,
+        } = await supabase.auth.getSession();
+
+        if (sessionError || !session) {
+          throw sessionError ?? new Error("Google sign-in did not create a session.");
+        }
+
+        window.location.href = getSafeNextPath();
       } catch {
-        setError("Unable to complete Google sign-in. Please check configuration.");
+        setError(
+          "Unable to complete Google sign-in. Try the redirect sign-in option below.",
+        );
+        setFallbackAvailable(true);
         setIsLoading(false);
       }
     }
@@ -116,12 +147,14 @@ export function GoogleLoginButton() {
         width: "360",
       });
       setGoogleButtonReady(true);
+      window.clearTimeout(fallbackTimer);
     }
 
     if (window.google?.accounts?.id) {
       renderGoogleButton();
       return () => {
         cancelled = true;
+        window.clearTimeout(fallbackTimer);
       };
     }
 
@@ -131,12 +164,16 @@ export function GoogleLoginButton() {
     script.src = "https://accounts.google.com/gsi/client";
     script.onload = renderGoogleButton;
     script.onerror = () => {
-      if (!cancelled) setError("Unable to load Google sign-in.");
+      if (!cancelled) {
+        setError("Unable to load Google sign-in. Try the redirect sign-in option.");
+        setFallbackAvailable(true);
+      }
     };
     document.head.appendChild(script);
 
     return () => {
       cancelled = true;
+      window.clearTimeout(fallbackTimer);
     };
   }, []);
 
@@ -147,18 +184,25 @@ export function GoogleLoginButton() {
     try {
       const supabase = createSupabaseBrowserClient();
       const appUrl = getPublicAppUrl(window.location.origin);
+      const nextPath = getSafeNextPath();
       const { error: authError } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${appUrl}/api/auth/callback?next=/workspace`,
+          redirectTo: `${appUrl}/api/auth/callback?next=${encodeURIComponent(
+            nextPath,
+          )}`,
         },
       });
 
       if (authError) {
         throw authError;
       }
-    } catch {
-      setError("Unable to start Google sign-in. Please check configuration.");
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Unable to start Google sign-in. Please check configuration.",
+      );
       setIsLoading(false);
     }
   }
@@ -176,7 +220,19 @@ export function GoogleLoginButton() {
             </span>
           ) : null}
         </div>
-      ) : (
+      ) : null}
+      {googleClientId && fallbackAvailable ? (
+        <button
+          className="flex w-full items-center justify-center gap-3 rounded-full border border-border-subtle bg-white py-4 text-sm font-medium leading-5 text-primary transition-colors hover:bg-surface active:scale-[0.98] disabled:cursor-wait disabled:opacity-70"
+          disabled={isLoading}
+          onClick={() => void signInWithGoogle()}
+          type="button"
+        >
+          <GoogleMark />
+          {isLoading ? "Opening Google..." : "Continue with Google redirect"}
+        </button>
+      ) : null}
+      {!googleClientId ? (
         <button
           className="flex w-full items-center justify-center gap-3 rounded-full border border-border-subtle bg-white py-4 text-sm font-medium leading-5 text-primary transition-colors hover:bg-surface active:scale-[0.98] disabled:cursor-wait disabled:opacity-70"
           disabled={isLoading}
@@ -186,6 +242,8 @@ export function GoogleLoginButton() {
           <GoogleMark />
           {isLoading ? "Opening Google..." : "Continue with Google"}
         </button>
+      ) : (
+        null
       )}
       {error ? <p className="text-center text-sm text-red-700">{error}</p> : null}
     </div>
