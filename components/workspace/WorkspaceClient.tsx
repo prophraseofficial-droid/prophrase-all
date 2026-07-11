@@ -4,6 +4,8 @@ import Image from "next/image";
 import Link from "next/link";
 import type { ChangeEvent } from "react";
 import { useEffect, useRef, useState } from "react";
+import { OutcomeAssistantPanel } from "@/components/outcome-assistant/OutcomeAssistantPanel";
+import { isOutcomeAssistantClientEnabled } from "@/lib/feature-flags";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { RewriteTemplate } from "@/lib/templates";
 import type { Tone } from "@/lib/tones";
@@ -86,6 +88,7 @@ type SpeechWindow = Window &
   };
 
 type WorkspaceView = "rewrite" | "history" | "templates";
+type WorkspaceMode = "rephrase" | "outcome";
 type VoiceStatus = "idle" | "starting" | "listening" | "processing";
 
 type ThreadSummary = {
@@ -116,6 +119,7 @@ const sidebarItems: Array<{
 
 const deviceIdStorageKey = "prophrase.device.id";
 const universalClipboardRefreshMs = 30_000;
+const outcomeAssistantEnabled = isOutcomeAssistantClientEnabled();
 
 type IconName =
   | "search"
@@ -276,6 +280,7 @@ function getBrowserDeviceLabel() {
 
 export function WorkspaceClient() {
   const [activeView, setActiveView] = useState<WorkspaceView>("rewrite");
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("rephrase");
   const [selectedTone, setSelectedTone] = useState<Tone>("Professional");
   const [inputText, setInputText] = useState("");
   const [lastInput, setLastInput] = useState("");
@@ -1291,6 +1296,38 @@ export function WorkspaceClient() {
 
         {activeView === "rewrite" ? (
           <>
+            {outcomeAssistantEnabled ? (
+              <div className="shrink-0 border-b border-border-subtle bg-[#faf9f6]/90 px-4 py-3 backdrop-blur-md md:px-10">
+                <div className="mx-auto flex max-w-5xl rounded-2xl border border-border-subtle bg-white p-1">
+                  <button
+                    className={
+                      workspaceMode === "rephrase"
+                        ? "flex-1 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white"
+                        : "flex-1 rounded-xl px-4 py-2 text-sm font-semibold text-text-muted"
+                    }
+                    onClick={() => setWorkspaceMode("rephrase")}
+                    type="button"
+                  >
+                    Rephrase
+                  </button>
+                  <button
+                    className={
+                      workspaceMode === "outcome"
+                        ? "flex-1 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white"
+                        : "flex-1 rounded-xl px-4 py-2 text-sm font-semibold text-text-muted"
+                    }
+                    onClick={() => setWorkspaceMode("outcome")}
+                    type="button"
+                  >
+                    Outcome Assistant
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            {outcomeAssistantEnabled && workspaceMode === "outcome" ? (
+              <OutcomeAssistantPanel />
+            ) : (
+              <>
             <div className="sticky top-0 z-10 flex w-full items-center justify-start bg-[#faf9f6]/70 px-4 py-3 backdrop-blur-md md:justify-center md:px-10 md:py-6">
               <div className="flex max-w-full items-center justify-start gap-2 overflow-x-auto rounded-full border border-border-subtle bg-surface-container-low p-1.5 md:flex-wrap md:justify-center">
                 {tones.map((tone) => {
@@ -1669,6 +1706,8 @@ export function WorkspaceClient() {
                 </div>
               </div>
             </div>
+              </>
+            )}
           </>
         ) : null}
 

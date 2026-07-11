@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
+    "test": "node --experimental-strip-types --experimental-specifier-resolution=node --test tests/outcome-assistant.test.ts",
     "mobile:install": "cd mobile && npm install",
     "mobile:start": "cd mobile && NODE_OPTIONS=--dns-result-order=ipv4first REACT_NATIVE_PACKAGER_HOSTNAME=127.0.0.1 EXPO_OFFLINE=1 EXPO_NO_TELEMETRY=1 EXPO_NO_REDIRECT_PAGE=1 EXPO_NO_METRO_WORKSPACE_ROOT=1 npx expo start --localhost",
     "mobile:android": "cd mobile && NODE_OPTIONS=--dns-result-order=ipv4first REACT_NATIVE_PACKAGER_HOSTNAME=127.0.0.1 EXPO_OFFLINE=1 EXPO_NO_TELEMETRY=1 EXPO_NO_REDIRECT_PAGE=1 EXPO_NO_METRO_WORKSPACE_ROOT=1 npx expo start --localhost --android",

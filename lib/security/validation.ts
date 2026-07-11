@@ -1,5 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import {
+  channelOptions,
+  intentOptions,
+  recipientOptions,
+  relationshipOptions,
+  urgencyOptions,
+} from "@/lib/outcome-assistant/types";
 import { tones } from "@/lib/tones";
 
 export const toneSchema = z.enum(tones);
@@ -12,6 +19,38 @@ export const rewriteBodySchema = z.object({
   instruction: z.string().trim().min(3).max(240).optional(),
   threadId: uuidSchema.optional(),
 });
+
+export const outcomeAssistantBodySchema = z
+  .object({
+    originalText: z.string().trim().min(3).max(5000),
+    recipient: z.enum(recipientOptions),
+    customRecipient: z.string().trim().max(80).optional(),
+    intent: z.enum(intentOptions),
+    customIntent: z.string().trim().max(120).optional(),
+    relationshipLevel: z.enum(relationshipOptions).optional(),
+    urgency: z.enum(urgencyOptions).optional(),
+    desiredResponse: z.string().trim().max(150).optional(),
+    channel: z.enum(channelOptions).default("email"),
+    lockedFacts: z.array(z.string().trim().min(1).max(120)).max(30).default([]),
+    languageMode: z.enum(["standard", "indian_workplace"]).default("standard"),
+  })
+  .superRefine((value, context) => {
+    if (value.recipient === "other" && !value.customRecipient?.trim()) {
+      context.addIssue({
+        code: "custom",
+        message: "Describe the recipient.",
+        path: ["customRecipient"],
+      });
+    }
+
+    if (value.intent === "other" && !value.customIntent?.trim()) {
+      context.addIssue({
+        code: "custom",
+        message: "Describe the intended outcome.",
+        path: ["customIntent"],
+      });
+    }
+  });
 
 export const createThreadSchema = z.object({
   title: z.string().trim().min(1).max(100).optional(),
@@ -94,6 +133,8 @@ export type ApiErrorCode =
   | "CLIPBOARD_ALREADY_CLAIMED"
   | "CLIPBOARD_EXPIRED"
   | "CONFIGURATION_ERROR"
+  | "FEATURE_DISABLED"
+  | "INVALID_AI_OUTPUT"
   | "RATE_LIMITED"
   | "INTERNAL_ERROR";
 
