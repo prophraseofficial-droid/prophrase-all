@@ -9,12 +9,12 @@ export async function proxy(request: NextRequest) {
       request.nextUrl.searchParams.has("error") ||
       request.nextUrl.searchParams.has("error_description"))
   ) {
-    const callbackUrl = request.nextUrl.clone();
-    callbackUrl.pathname = "/api/auth/callback";
-    if (!callbackUrl.searchParams.has("next")) {
-      callbackUrl.searchParams.set("next", "/workspace");
+    const finishUrl = request.nextUrl.clone();
+    finishUrl.pathname = "/auth/finish";
+    if (!finishUrl.searchParams.has("next")) {
+      finishUrl.searchParams.set("next", "/workspace");
     }
-    return NextResponse.redirect(callbackUrl);
+    return NextResponse.redirect(finishUrl);
   }
 
   return updateSession(request);

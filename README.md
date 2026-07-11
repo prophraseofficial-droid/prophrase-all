@@ -37,6 +37,26 @@ Run the web app:
 npm run dev
 ```
 
+## Auth URLs
+
+Supabase Auth URL Configuration should include both the server callback and the
+browser fallback route:
+
+```text
+Site URL: https://prophrase.in
+
+Redirect URLs:
+https://prophrase.in/api/auth/callback
+https://prophrase.in/auth/finish
+https://prophrase.in/workspace
+http://localhost:3000/api/auth/callback
+http://localhost:3000/auth/finish
+http://localhost:3000/workspace
+```
+
+Use `NEXT_PUBLIC_APP_URL=http://localhost:3000` for local development and
+`NEXT_PUBLIC_APP_URL=https://prophrase.in` in Vercel production.
+
 ## Mobile App
 
 The Expo mobile app lives in `mobile/`.

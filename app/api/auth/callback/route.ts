@@ -18,6 +18,19 @@ function safeNextPath(value: string | null) {
   return value;
 }
 
+function authFinishUrl(requestUrl: URL, next: string) {
+  const finishUrl = new URL("/auth/finish", requestUrl.origin);
+  requestUrl.searchParams.forEach((value, key) => {
+    finishUrl.searchParams.set(key, value);
+  });
+  finishUrl.searchParams.set("next", next);
+  return finishUrl;
+}
+
+function isMissingPkceVerifier(errorMessage: string) {
+  return /code verifier|pkce/i.test(errorMessage);
+}
+
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
   const code = requestUrl.searchParams.get("code");
@@ -38,6 +51,10 @@ export async function GET(request: Request) {
       const { error } = await supabase.auth.exchangeCodeForSession(code);
 
       if (error) {
+        if (isMissingPkceVerifier(error.message)) {
+          return NextResponse.redirect(authFinishUrl(requestUrl, next));
+        }
+
         const loginUrl = new URL("/login", requestUrl.origin);
         loginUrl.searchParams.set("auth_error", error.message);
         return NextResponse.redirect(loginUrl);
