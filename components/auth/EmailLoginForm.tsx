@@ -60,7 +60,7 @@ export function EmailLoginForm() {
       const { error: signInError } = await supabase.auth.signInWithOtp({
         email: trimmedEmail,
         options: {
-          emailRedirectTo: `${appUrl}/api/auth/callback?next=${encodeURIComponent(
+          emailRedirectTo: `${appUrl}/auth/finish?next=${encodeURIComponent(
             nextPath,
           )}`,
         },

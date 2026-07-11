@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -23,6 +23,7 @@ function friendlyAuthError(message: string) {
 
 export function AuthFinishClient() {
   const searchParams = useSearchParams();
+  const hasStartedRef = useRef(false);
   const [message, setMessage] = useState("Completing sign-in...");
   const [failed, setFailed] = useState(false);
   const nextPath = useMemo(
@@ -31,7 +32,8 @@ export function AuthFinishClient() {
   );
 
   useEffect(() => {
-    let cancelled = false;
+    if (hasStartedRef.current) return;
+    hasStartedRef.current = true;
 
     async function finishAuth() {
       const authError =
@@ -54,11 +56,8 @@ export function AuthFinishClient() {
         const { error } = await supabase.auth.exchangeCodeForSession(code);
 
         if (error) throw error;
-        if (!cancelled) {
-          window.location.replace(nextPath);
-        }
+        window.location.replace(nextPath);
       } catch (caughtError) {
-        if (cancelled) return;
         setFailed(true);
         setMessage(
           friendlyAuthError(
@@ -69,10 +68,6 @@ export function AuthFinishClient() {
     }
 
     void finishAuth();
-
-    return () => {
-      cancelled = true;
-    };
   }, [nextPath, searchParams]);
 
   return (

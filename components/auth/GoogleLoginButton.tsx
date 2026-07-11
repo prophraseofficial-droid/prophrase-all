@@ -188,7 +188,7 @@ export function GoogleLoginButton() {
       const { error: authError } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${appUrl}/api/auth/callback?next=${encodeURIComponent(
+          redirectTo: `${appUrl}/auth/finish?next=${encodeURIComponent(
             nextPath,
           )}`,
         },
@@ -210,15 +210,16 @@ export function GoogleLoginButton() {
   return (
     <div className="space-y-3">
       {googleClientId ? (
-        <div
-          className="flex min-h-[54px] w-full items-center justify-center rounded-full border border-border-subtle bg-white px-2 py-2"
-          ref={googleButtonRef}
-        >
+        <div className="relative flex min-h-[54px] w-full items-center justify-center rounded-full border border-border-subtle bg-white px-2 py-2">
           {!googleButtonReady ? (
             <span className="text-sm font-medium leading-5 text-text-muted">
               Loading Google...
             </span>
           ) : null}
+          <div
+            className={googleButtonReady ? "" : "invisible absolute"}
+            ref={googleButtonRef}
+          />
         </div>
       ) : null}
       {googleClientId && fallbackAvailable ? (
