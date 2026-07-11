@@ -19,6 +19,11 @@ export function isProductionAppEnv() {
 }
 
 export function getPublicAppUrl(fallbackOrigin?: string) {
+  const cleanedFallback = fallbackOrigin ? cleanUrl(fallbackOrigin) : "";
+  if (cleanedFallback && isLocalUrl(cleanedFallback)) {
+    return cleanedFallback;
+  }
+
   const configuredUrl = process.env.NEXT_PUBLIC_APP_URL;
   const cleanedUrl = configuredUrl ? cleanUrl(configuredUrl) : "";
 
@@ -30,5 +35,5 @@ export function getPublicAppUrl(fallbackOrigin?: string) {
     return PRODUCTION_APP_URL;
   }
 
-  return fallbackOrigin ? cleanUrl(fallbackOrigin) : DEVELOPMENT_APP_URL;
+  return cleanedFallback || DEVELOPMENT_APP_URL;
 }
