@@ -17,6 +17,8 @@ import type {
   RelationshipLevel,
   UrgencyLevel,
 } from "@/lib/outcome-assistant/types";
+import { trackPreferenceEvent } from "@/lib/preferences/analytics";
+import type { UserPreferences } from "@/lib/preferences/registry";
 import {
   channelLabels,
   channelOptions,
@@ -152,6 +154,7 @@ export function OutcomeAssistantPanel({
   creditBillingEnabled = false,
   creditBalance = null,
   onCreditsChanged,
+  preferences,
 }: {
   plan?: "free" | "plus" | "pro";
   planFeatureGatingEnabled?: boolean;
@@ -162,6 +165,7 @@ export function OutcomeAssistantPanel({
     remaining: number;
     nextRefreshAt: string | null;
   }) => void;
+  preferences?: UserPreferences["outcomeAssistant"];
 }) {
   const [originalText, setOriginalText] = useState("");
   const [recipient, setRecipient] = useState<RecipientType | "">("");
@@ -172,7 +176,11 @@ export function OutcomeAssistantPanel({
   const [relationshipLevel, setRelationshipLevel] = useState<RelationshipLevel>();
   const [urgency, setUrgency] = useState<UrgencyLevel>("none");
   const [desiredResponse, setDesiredResponse] = useState("");
-  const [channel, setChannel] = useState<CommunicationChannel>("email");
+  const [channel, setChannel] = useState<CommunicationChannel>(
+    preferences?.defaultChannel && preferences.defaultChannel !== "auto"
+      ? preferences.defaultChannel
+      : "email",
+  );
   const [languageMode, setLanguageMode] = useState<"standard" | "indian_workplace">(
     "standard",
   );
@@ -181,7 +189,9 @@ export function OutcomeAssistantPanel({
   const [response, setResponse] = useState<OutcomeAssistantResponse | null>(null);
   const [editedMessages, setEditedMessages] = useState<Record<string, string>>({});
   const [editedIds, setEditedIds] = useState<Set<string>>(new Set());
-  const [selectedVersionId, setSelectedVersionId] = useState<string>("balanced");
+  const [selectedVersionId, setSelectedVersionId] = useState<string>(preferences?.defaultVariant ?? "balanced");
+  const [recipientSearch, setRecipientSearch] = useState("");
+  const [intentSearch, setIntentSearch] = useState("");
   const [feedbackByVersion, setFeedbackByVersion] = useState<Record<string, string>>({});
   const [showComparison, setShowComparison] = useState(false);
   const [status, setStatus] = useState("");
@@ -216,6 +226,20 @@ export function OutcomeAssistantPanel({
   const usedCredits = creditBalance
     ? Math.max(0, creditBalance.allowance - creditBalance.available)
     : 0;
+  const favoriteRecipients = preferences?.favoriteRecipients ?? ["manager", "client", "colleague"];
+  const favoriteIntents = preferences?.favoriteIntents ?? ["request", "follow_up", "approval", "status_update", "extension_request", "rejection"];
+  const visibleRecipients = recipient && !favoriteRecipients.includes(recipient)
+    ? [...favoriteRecipients, recipient]
+    : favoriteRecipients;
+  const visibleIntents = intent && !favoriteIntents.includes(intent)
+    ? [...favoriteIntents, intent]
+    : favoriteIntents;
+  const searchedRecipients = recipientOptions.filter((option) =>
+    recipientLabels[option].toLowerCase().includes(recipientSearch.trim().toLowerCase()),
+  );
+  const searchedIntents = intentOptions.filter((option) =>
+    intentLabels[option].toLowerCase().includes(intentSearch.trim().toLowerCase()),
+  );
 
   useEffect(() => {
     if (!loading) return;
@@ -328,7 +352,7 @@ export function OutcomeAssistantPanel({
         Object.fromEntries(data.variants.map((version) => [version.id, version.message])),
       );
       setEditedIds(new Set());
-      setSelectedVersionId("balanced");
+      setSelectedVersionId(preferences?.defaultVariant ?? "balanced");
       setStatus("Three versions are ready.");
       trackOutcomeEvent("outcome_generation_succeeded", {
         recipient,
@@ -527,15 +551,25 @@ export function OutcomeAssistantPanel({
               <div className="grid gap-3">
                 <FieldLabel>Who are you sending this to?</FieldLabel>
                 <div className="flex flex-wrap gap-2">
-                  {recipientOptions.map((option) => (
+                  {visibleRecipients.map((option) => (
                     <Chip
                       key={option}
                       selected={recipient === option}
-                      onClick={() => setRecipient(option)}
+                      onClick={() => {
+                        setRecipient(option);
+                        trackPreferenceEvent("outcome_favorite_recipient_selected", { recipientCategory: option, source: "workspace" });
+                      }}
                     >
                       {recipientLabels[option]}
                     </Chip>
                   ))}
+                  <details className="relative">
+                    <summary className="flex min-h-9 cursor-pointer list-none items-center rounded-full border border-border-subtle bg-white px-3 text-xs font-semibold text-primary" onClick={() => trackPreferenceEvent("outcome_more_recipient_opened", { source: "workspace" })}>More</summary>
+                    <div className="fixed inset-x-0 bottom-0 z-50 max-h-[70dvh] overflow-y-auto rounded-t-2xl border border-border-subtle bg-white p-4 shadow-2xl md:absolute md:inset-auto md:left-0 md:top-11 md:w-72 md:rounded-lg">
+                      <label className="grid gap-2 text-xs font-semibold text-text-muted">Find recipient<input className="min-h-11 rounded-lg border border-border-subtle px-3 text-sm text-primary" onChange={(event) => setRecipientSearch(event.target.value)} placeholder="Search recipients" value={recipientSearch} /></label>
+                      <div className="mt-3 grid gap-1">{searchedRecipients.map((option) => <button className="min-h-11 rounded-lg px-3 text-left text-sm font-semibold hover:bg-surface-container-low" key={option} onClick={(event) => { setRecipient(option); (event.currentTarget.closest("details") as HTMLDetailsElement | null)?.removeAttribute("open"); }} type="button">{recipientLabels[option]}</button>)}</div>
+                    </div>
+                  </details>
                 </div>
                 {recipient === "other" ? (
                   <input
@@ -551,15 +585,25 @@ export function OutcomeAssistantPanel({
               <div className="grid gap-3">
                 <FieldLabel>What do you want this message to achieve?</FieldLabel>
                 <div className="flex flex-wrap gap-2">
-                  {intentOptions.map((option) => (
+                  {visibleIntents.map((option) => (
                     <Chip
                       key={option}
                       selected={intent === option}
-                      onClick={() => setIntent(option)}
+                      onClick={() => {
+                        setIntent(option);
+                        trackPreferenceEvent("outcome_favorite_intent_selected", { intentCategory: option, source: "workspace" });
+                      }}
                     >
                       {intentLabels[option]}
                     </Chip>
                   ))}
+                  <details className="relative">
+                    <summary className="flex min-h-9 cursor-pointer list-none items-center rounded-full border border-border-subtle bg-white px-3 text-xs font-semibold text-primary" onClick={() => trackPreferenceEvent("outcome_more_intent_opened", { source: "workspace" })}>More</summary>
+                    <div className="fixed inset-x-0 bottom-0 z-50 max-h-[70dvh] overflow-y-auto rounded-t-2xl border border-border-subtle bg-white p-4 shadow-2xl md:absolute md:inset-auto md:right-0 md:top-11 md:w-80 md:rounded-lg">
+                      <label className="grid gap-2 text-xs font-semibold text-text-muted">Find goal<input className="min-h-11 rounded-lg border border-border-subtle px-3 text-sm text-primary" onChange={(event) => setIntentSearch(event.target.value)} placeholder="Search goals" value={intentSearch} /></label>
+                      <div className="mt-3 grid gap-1">{searchedIntents.map((option) => <button className="min-h-11 rounded-lg px-3 text-left text-sm font-semibold hover:bg-surface-container-low" key={option} onClick={(event) => { setIntent(option); (event.currentTarget.closest("details") as HTMLDetailsElement | null)?.removeAttribute("open"); }} type="button">{intentLabels[option]}</button>)}</div>
+                    </div>
+                  </details>
                 </div>
                 {intent === "other" ? (
                   <input

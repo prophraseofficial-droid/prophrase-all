@@ -1,8 +1,20 @@
 import {
   AiProviderError,
   generateOutcomeAssistantWithGemini,
-  rewriteWithGemini,
 } from "@/lib/ai/gemini";
+import {
+  buildV2OutcomeRepairRequest,
+  buildV2OutcomeRequest,
+  isPromptV2Enabled,
+  outcomeResponseSchema,
+  parseV2OutcomeResponse,
+  prophrasePromptVersion,
+} from "@/lib/ai/prompt-engine";
+import {
+  validateSemanticInvariants,
+  type SemanticFailure,
+  type SemanticMetadata,
+} from "@/lib/ai/semantics";
 import { compareCommitments } from "@/lib/outcome-assistant/commitments";
 import {
   findIntroducedNumbers,
@@ -207,173 +219,140 @@ function postProcessResponse({
   };
 }
 
-async function generateReliableFallback(request: OutcomeAssistantRequest) {
-  const metadata = [
-    `Recipient: ${recipientLabels[request.recipient]}`,
-    `Outcome: ${intentLabels[request.intent]}`,
-    request.relationshipLevel
-      ? `Relationship: ${relationshipLabels[request.relationshipLevel]}`
-      : null,
-    request.urgency ? `Urgency: ${urgencyLabels[request.urgency]}` : null,
-    request.channel ? `Channel: ${channelLabels[request.channel]}` : null,
-    request.desiredResponse
-      ? `Desired response: ${request.desiredResponse}`
-      : null,
-    request.lockedFacts.length
-      ? `Preserve these exact details: ${request.lockedFacts.join("; ")}`
-      : null,
-  ].filter(Boolean).join("\n");
-  const versions = [
-    {
-      id: "safe" as const,
-      label: "Safe",
-      explanation: "Careful and low-risk while preserving your intention.",
-      instruction: "Write a careful, respectful, low-risk version. Keep the request clear and do not weaken the intention.",
-    },
-    {
-      id: "balanced" as const,
-      label: "Balanced",
-      explanation: "Natural, confident and professional.",
-      instruction: "Write a natural, confident, concise professional version with a clear next action.",
-    },
-    {
-      id: "firm" as const,
-      label: "Firm",
-      explanation: "Direct and assertive without becoming rude.",
-      instruction: "Write a direct, assertive version that remains respectful and does not add threats, facts, deadlines or promises.",
-    },
-  ];
-  const generated = await Promise.allSettled(
-    versions.map((version) => rewriteWithGemini({
-      text: request.originalText,
-      tone: "Professional",
-      instruction: `${version.instruction}\n${metadata}`,
-    })),
-  );
-  const firstSuccess = generated.find(
-    (result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof rewriteWithGemini>>> =>
-      result.status === "fulfilled",
-  );
-  if (!firstSuccess) {
-    const firstFailure = generated.find(
-      (result): result is PromiseRejectedResult => result.status === "rejected",
-    );
-    throw firstFailure?.reason ?? new Error("OUTCOME_FALLBACK_FAILED");
-  }
+function outcomeFailures({
+  request,
+  response,
+  metadata,
+}: {
+  request: OutcomeAssistantRequest;
+  response: OutcomeAssistantResponse;
+  metadata: SemanticMetadata;
+}) {
+  return response.variants.flatMap((variant) => {
+    const failures = validateSemanticInvariants({
+      originalText: request.originalText,
+      outputText: variant.message,
+      metadata,
+    });
+    return failures.length ? [{ variant: variant.id, failures }] : [];
+  });
+}
 
-  return {
-    response: postProcessResponse({
-      request,
-      response: {
-        detectedLanguage: request.languageMode === "indian_workplace"
-          ? "Indian workplace English"
-          : "English",
-        understoodIntent: `Prepare a message for ${recipientLabels[request.recipient]} to ${intentLabels[request.intent].toLowerCase()}.`,
-        variants: versions.map((version, index) => {
-          const result = generated[index];
-          const message = result?.status === "fulfilled"
-            ? result.value.text
-            : firstSuccess.value.text;
-          return {
-            id: version.id,
-            label: version.label,
-            explanation: version.explanation,
-            message,
-            readerInterpretation: "This version communicates the requested outcome professionally.",
-            risks: [],
-            factVerification: [],
-            commitmentWarnings: [],
-          };
-        }),
-        globalWarnings: generated.some((result) => result.status === "rejected")
-          ? ["One version was recovered from the available generation result."]
-          : [],
-        missingInformation: [],
-      },
-    }),
-    model: firstSuccess.value.model,
+async function generateLegacyOutcome(request: OutcomeAssistantRequest) {
+  const prompt = buildOutcomePrompt(request);
+  const first = await generateOutcomeAssistantWithGemini({
+    prompt,
     promptVersion: outcomeAssistantPromptVersion,
-    repaired: true,
-    fallback: true,
-  };
+  });
+  try {
+    return {
+      response: postProcessResponse({ request, response: parseOutcomeAssistantJson(first.text) }),
+      model: first.model,
+      promptVersion: outcomeAssistantPromptVersion,
+      repaired: false,
+      fallback: false,
+    };
+  } catch (firstError) {
+    const repair = await generateOutcomeAssistantWithGemini({
+      prompt: `${prompt}\n${buildRepairPrompt({
+        invalidText: first.text,
+        validationMessage: firstError instanceof Error ? firstError.message : "Invalid structured output.",
+      })}`,
+      promptVersion: outcomeAssistantPromptVersion,
+    });
+    let response;
+    try {
+      response = parseOutcomeAssistantJson(repair.text);
+    } catch {
+      response = parseOutcomeAssistantJsonLenient(repair.text);
+    }
+    return {
+      response: postProcessResponse({ request, response }),
+      model: repair.model,
+      promptVersion: outcomeAssistantPromptVersion,
+      repaired: true,
+      fallback: false,
+    };
+  }
 }
 
 export async function generateOutcomeAssistantResponse(
   request: OutcomeAssistantRequest,
 ) {
-  const prompt = buildOutcomePrompt(request);
-
   try {
+    if (!isPromptV2Enabled()) return await generateLegacyOutcome(request);
+    const promptRequest = buildV2OutcomeRequest(request);
     const firstResponse = await generateOutcomeAssistantWithGemini({
-      prompt,
-      promptVersion: outcomeAssistantPromptVersion,
+      prompt: promptRequest.userPrompt,
+      systemInstruction: promptRequest.systemInstruction,
+      responseSchema: promptRequest.responseSchema,
+      promptVersion: prophrasePromptVersion,
     });
-
+    let firstParsed: OutcomeAssistantResponse | null = null;
+    let failures: Array<{ variant: string; failures: SemanticFailure[] }>;
     try {
+      firstParsed = parseV2OutcomeResponse(firstResponse.text);
+      failures = outcomeFailures({ request, response: firstParsed, metadata: promptRequest.metadata });
+    } catch {
+      failures = [{
+        variant: "response",
+        failures: [{ code: "invalid_schema", severity: "critical", message: "Return exactly safe, balanced and firm in the required JSON schema." }],
+      }];
+    }
+    if (firstParsed && !failures.length) {
       return {
-        response: postProcessResponse({
-          request,
-          response: parseOutcomeAssistantJson(firstResponse.text),
-        }),
+        response: postProcessResponse({ request, response: firstParsed }),
         model: firstResponse.model,
-        promptVersion: outcomeAssistantPromptVersion,
+        promptVersion: prophrasePromptVersion,
         repaired: false,
         fallback: false,
       };
-    } catch (firstError) {
-      const repair = await generateOutcomeAssistantWithGemini({
-        prompt: `${prompt}
-
-${buildRepairPrompt({
-  invalidText: firstResponse.text,
-  validationMessage:
-    firstError instanceof Error ? firstError.message : "Invalid structured output.",
-})}`,
-        promptVersion: outcomeAssistantPromptVersion,
-      });
-
-      try {
-        return {
-          response: postProcessResponse({
-            request,
-            response: parseOutcomeAssistantJson(repair.text),
-          }),
-          model: repair.model,
-          promptVersion: outcomeAssistantPromptVersion,
-          repaired: true,
-          fallback: false,
-        };
-      } catch {
-        return {
-          response: postProcessResponse({
-            request,
-            response: parseOutcomeAssistantJsonLenient(repair.text),
-          }),
-          model: repair.model,
-          promptVersion: outcomeAssistantPromptVersion,
-          repaired: true,
-          fallback: false,
-        };
-      }
     }
+    const repair = await generateOutcomeAssistantWithGemini({
+      prompt: buildV2OutcomeRepairRequest({
+        request,
+        failedResponse: firstResponse.text.slice(0, 10_000),
+        metadata: promptRequest.metadata,
+        failures,
+      }),
+      systemInstruction: promptRequest.systemInstruction,
+      responseSchema: outcomeResponseSchema,
+      promptVersion: prophrasePromptVersion,
+    });
+    let repaired: OutcomeAssistantResponse;
+    try {
+      repaired = parseV2OutcomeResponse(repair.text);
+    } catch {
+      throw new OutcomeAssistantError({
+        code: "INVALID_AI_OUTPUT",
+        message: "INVALID_OUTCOME_REPAIR_SCHEMA",
+        userMessage: "ProPhrase could not reliably preserve the meaning of this message. Your text is unchanged and no credits were used.",
+      });
+    }
+    const remaining = outcomeFailures({ request, response: repaired, metadata: promptRequest.metadata });
+    if (remaining.length) {
+      throw new OutcomeAssistantError({
+        code: "INVALID_AI_OUTPUT",
+        message: `OUTCOME_VALIDATION_FAILED:${remaining.flatMap((entry) => entry.failures.map((failure) => failure.code)).join(",")}`,
+        userMessage: "ProPhrase could not reliably preserve the meaning of this message. Your text is unchanged and no credits were used.",
+      });
+    }
+    return {
+      response: postProcessResponse({ request, response: repaired }),
+      model: repair.model,
+      promptVersion: prophrasePromptVersion,
+      repaired: true,
+      fallback: false,
+    };
   } catch (error) {
     if (error instanceof OutcomeAssistantError || error instanceof AiProviderError) {
       throw error;
     }
-    try {
-      return await generateReliableFallback(request);
-    } catch (fallbackError) {
-      if (fallbackError instanceof AiProviderError) throw fallbackError;
-      throw new OutcomeAssistantError({
-        code: "INVALID_AI_OUTPUT",
-        message: fallbackError instanceof Error
-          ? fallbackError.message
-          : error instanceof Error
-            ? error.message
-            : "INVALID_OUTCOME_OUTPUT",
-        userMessage: "We could not prepare the message because the AI service did not return usable text. No credits were used.",
-        status: 502,
-      });
-    }
+    throw new OutcomeAssistantError({
+      code: "INVALID_AI_OUTPUT",
+      message: error instanceof Error ? error.message : "INVALID_OUTCOME_OUTPUT",
+      userMessage: "ProPhrase could not reliably preserve the meaning of this message. Your text is unchanged and no credits were used.",
+      status: 502,
+    });
   }
 }

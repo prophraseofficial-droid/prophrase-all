@@ -13,6 +13,63 @@ export type Tone =
   | "Manager-friendly"
   | "Firmer";
 
+export type QuickStyleId =
+  | "professional" | "polite" | "shorter" | "short_crisp" | "human"
+  | "email" | "slack" | "teams" | "jira_comment" | "whatsapp"
+  | "client_safe" | "manager_friendly" | "firmer";
+
+export type RecipientType =
+  | "manager" | "senior_leader" | "client" | "customer" | "colleague"
+  | "direct_report" | "recruiter" | "vendor" | "friend" | "family" | "other";
+
+export type IntentType =
+  | "request" | "follow_up" | "approval" | "status_update" | "escalation"
+  | "disagreement" | "rejection" | "boundary" | "payment_request" | "apology"
+  | "clarification" | "negotiation" | "extension_request" | "feedback"
+  | "criticism_response" | "other";
+
+export type CommunicationChannel = "whatsapp" | "email" | "slack_teams" | "sms" | "linkedin" | "other";
+export type OutcomeVersionId = "safe" | "balanced" | "firm";
+
+export type UserPreferences = {
+  preferencesVersion: 1;
+  onboardingCompleted: boolean;
+  existingNoticeDismissed: boolean;
+  rephrase: { quickStyles: QuickStyleId[]; defaultStyle: QuickStyleId };
+  outcomeAssistant: {
+    favoriteRecipients: RecipientType[];
+    favoriteIntents: IntentType[];
+    defaultChannel: CommunicationChannel | "auto";
+    defaultVariant: OutcomeVersionId;
+  };
+};
+
+export type PreferenceOptions = {
+  quickStyles: Array<{ id: QuickStyleId; tone: Tone; label: string; description: string; group: "tone" | "length" | "channel" | "audience" }>;
+  quickStyleGroups: Array<{ id: "tone" | "length" | "channel" | "audience"; label: string }>;
+  recipients: Array<{ id: RecipientType; label: string }>;
+  intents: Array<{ id: IntentType; label: string }>;
+  channels: Array<{ id: CommunicationChannel; label: string }>;
+};
+
+export type PreferenceState = {
+  preferences: UserPreferences;
+  available: boolean;
+  onboardingRequired: boolean;
+  existingNoticeRequired: boolean;
+};
+
+export type OutcomeAssistantResponse = {
+  understoodIntent: string;
+  variants: Array<{
+    id: OutcomeVersionId;
+    label: string;
+    explanation: string;
+    message: string;
+    readerInterpretation: string;
+  }>;
+};
+
 export type UsageSummary = {
   plan: "free" | "plus" | "pro" | "pro_monthly" | "pro_yearly";
   isPro: boolean;
@@ -79,7 +136,9 @@ export type ViewName =
   | "onboarding-value"
   | "onboarding-tone"
   | "onboarding-start"
+  | "quick-styles"
   | "home"
+  | "outcome"
   | "history"
   | "templates"
   | "settings";

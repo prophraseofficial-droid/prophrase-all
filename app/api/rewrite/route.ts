@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { AiProviderError, rewriteWithGemini } from "@/lib/ai/gemini";
+import {
+  AiProviderError,
+  AiValidationError,
+  rewriteWithGemini,
+} from "@/lib/ai/gemini";
 import {
   BillingOperationError,
   creditFailureSummary,
@@ -160,6 +164,17 @@ export async function POST(request: Request) {
         contextMessages,
       });
     } catch (caughtError) {
+      if (caughtError instanceof AiValidationError) {
+        await releaseCreditOperation(user.id, creditContext, "semantic_validation_failed");
+        const credits = await creditFailureSummary(user.id, creditContext);
+        creditContext = null;
+        return apiError(
+          "INVALID_AI_OUTPUT",
+          caughtError.userMessage,
+          422,
+          credits ? { credits } : undefined,
+        );
+      }
       if (caughtError instanceof AiProviderError) {
         await releaseCreditOperation(user.id, creditContext, "ai_provider_error");
         const credits = await creditFailureSummary(user.id, creditContext);
@@ -266,6 +281,9 @@ export async function POST(request: Request) {
     return NextResponse.json({
       requestId: creditContext.requestId,
       result: aiResult.text,
+      warnings: aiResult.warnings,
+      promptVersion: aiResult.promptVersion,
+      repaired: aiResult.repaired,
       threadId,
       messageId: assistantMessage.id,
       userMessage,

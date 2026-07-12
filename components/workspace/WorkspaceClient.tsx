@@ -5,11 +5,20 @@ import Link from "next/link";
 import type { ChangeEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { OutcomeAssistantPanel } from "@/components/outcome-assistant/OutcomeAssistantPanel";
+import { QuickStylesBar } from "@/components/preferences/QuickStylesBar";
+import { QuickStylesOnboarding } from "@/components/preferences/QuickStylesOnboarding";
 import { isOutcomeAssistantClientEnabled } from "@/lib/feature-flags";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { RewriteTemplate } from "@/lib/templates";
 import type { Tone } from "@/lib/tones";
 import { isTone, tones } from "@/lib/tones";
+import { patchPreferences } from "@/lib/preferences/client";
+import {
+  quickStyleById,
+  recommendedPreferences,
+  type UserPreferences,
+} from "@/lib/preferences/registry";
+import { isPreferencesEnabled } from "@/lib/preferences/flags";
 import { estimateCreditCost } from "@/lib/billing/credits";
 import type { CreditBalance } from "@/lib/billing/types";
 
@@ -127,6 +136,10 @@ const sidebarItems: Array<{
 const deviceIdStorageKey = "prophrase.device.id";
 const universalClipboardRefreshMs = 30_000;
 const outcomeAssistantEnabled = isOutcomeAssistantClientEnabled();
+const preferencesFeatureEnabled = isPreferencesEnabled();
+const workspacePreferenceDefaults = recommendedPreferences();
+workspacePreferenceDefaults.onboardingCompleted = true;
+workspacePreferenceDefaults.existingNoticeDismissed = true;
 
 type IconName =
   | "search"
@@ -307,6 +320,10 @@ export function WorkspaceClient() {
   const [processingStep, setProcessingStep] = useState("Preparing rewrite...");
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [preferences, setPreferences] = useState<UserPreferences>(workspacePreferenceDefaults);
+  const [preferencesLoaded, setPreferencesLoaded] = useState(false);
+  const [onboardingRequired, setOnboardingRequired] = useState(false);
+  const [existingNoticeRequired, setExistingNoticeRequired] = useState(false);
   const [userName, setUserName] = useState("ProPhrase user");
   const [userEmail, setUserEmail] = useState("");
   const [isListening, setIsListening] = useState(false);
@@ -554,6 +571,12 @@ export function WorkspaceClient() {
                 email?: string;
                 name?: string;
               };
+              preferences?: {
+                preferences?: UserPreferences;
+                available?: boolean;
+                onboardingRequired?: boolean;
+                existingNoticeRequired?: boolean;
+              };
               message?: string;
             }
           | null;
@@ -571,8 +594,17 @@ export function WorkspaceClient() {
         setTemplates(data.templates ?? []);
         setUserEmail(data.user?.email ?? "");
         setUserName(data.user?.name || "ProPhrase user");
+        if (data.preferences?.preferences) {
+          const nextPreferences = data.preferences.preferences;
+          setPreferences(nextPreferences);
+          setSelectedTone(quickStyleById[nextPreferences.rephrase.defaultStyle].tone);
+          setOnboardingRequired(Boolean(data.preferences.onboardingRequired));
+          setExistingNoticeRequired(Boolean(data.preferences.existingNoticeRequired));
+        }
+        setPreferencesLoaded(true);
       } catch {
         setError("Unable to load your workspace. Please refresh.");
+        setPreferencesLoaded(true);
       }
     }
 
@@ -1036,8 +1068,28 @@ export function WorkspaceClient() {
     window.location.href = "/login";
   }
 
+  async function dismissExistingPreferenceNotice() {
+    setExistingNoticeRequired(false);
+    try {
+      const state = await patchPreferences({ existingNoticeDismissed: true });
+      setPreferences(state.preferences);
+    } catch {
+      setExistingNoticeRequired(true);
+    }
+  }
+
   return (
     <main className="flex h-[100dvh] flex-col overflow-hidden bg-[#faf9f6] text-[#1a1c1a] md:flex-row">
+      {preferencesFeatureEnabled && preferencesLoaded && onboardingRequired ? (
+        <QuickStylesOnboarding
+          initialPreferences={preferences}
+          onComplete={(nextPreferences) => {
+            setPreferences(nextPreferences);
+            setSelectedTone(quickStyleById[nextPreferences.rephrase.defaultStyle].tone);
+            setOnboardingRequired(false);
+          }}
+        />
+      ) : null}
       <aside className="hidden w-72 shrink-0 flex-col border-r border-border-subtle bg-surface px-4 py-5 md:flex">
         <Link className="mb-6 flex items-center gap-3 px-2" href="/">
           <Image
@@ -1071,6 +1123,10 @@ export function WorkspaceClient() {
               </button>
             );
           })}
+          <Link className="group flex items-center gap-3 rounded-xl px-4 py-3 text-left text-text-muted transition-all hover:bg-surface-container hover:text-primary" href="/settings">
+            <Icon className="text-2xl" name="user" />
+            <span className="text-sm font-medium leading-5">Settings</span>
+          </Link>
         </nav>
 
         <div className="mt-7 space-y-3">
@@ -1236,6 +1292,10 @@ export function WorkspaceClient() {
                   <Icon className="text-lg" name="log-out" />
                   <span>Logout</span>
                 </button>
+                <Link className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-primary hover:bg-surface-container" href="/settings">
+                  <Icon className="text-lg" name="user" />
+                  <span>App Settings</span>
+                </Link>
               </div>
             ) : null}
 
@@ -1312,6 +1372,7 @@ export function WorkspaceClient() {
                 </span>
               </div>
               <div className="mt-2 flex gap-2">
+                <Link className="flex-1 rounded-xl border border-border-subtle px-3 py-2 text-center text-xs font-semibold text-primary" href="/settings">Settings</Link>
                 <Link
                   className="flex-1 rounded-xl border border-border-subtle px-3 py-2 text-center text-xs font-semibold text-primary"
                   href="/account/billing"
@@ -1329,7 +1390,7 @@ export function WorkspaceClient() {
             </div>
           ) : null}
 
-          <nav className="mt-3 grid grid-cols-3 gap-2">
+          <nav className="mt-3 grid grid-cols-4 gap-2">
             {sidebarItems.map((item) => {
               const isActive = activeView === item.view;
 
@@ -1349,11 +1410,23 @@ export function WorkspaceClient() {
                 </button>
               );
             })}
+            <Link className="flex h-11 items-center justify-center rounded-xl border border-border-subtle bg-white px-2 text-xs font-semibold text-text-muted" href="/settings">Settings</Link>
           </nav>
         </div>
 
         {activeView === "rewrite" ? (
           <>
+            {preferencesFeatureEnabled && existingNoticeRequired ? (
+              <div className="shrink-0 border-b border-border-subtle bg-[#fff8e8] px-4 py-3 md:px-10">
+                <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3">
+                  <p className="text-sm font-medium text-primary">Choose the styles you want to see while rewriting.</p>
+                  <div className="flex gap-3">
+                    <Link className="text-sm font-semibold underline" href="/settings#rephrase">Open Settings</Link>
+                    <button className="text-sm font-semibold text-text-muted" onClick={() => void dismissExistingPreferenceNotice()} type="button">Keep defaults</button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
             {outcomeAssistantEnabled ? (
               <div className="shrink-0 border-b border-border-subtle bg-[#faf9f6]/90 px-4 py-3 backdrop-blur-md md:px-10">
                 <div className="mx-auto flex max-w-5xl rounded-2xl border border-border-subtle bg-white p-1">
@@ -1384,6 +1457,7 @@ export function WorkspaceClient() {
             ) : null}
             {outcomeAssistantEnabled && workspaceMode === "outcome" ? (
               <OutcomeAssistantPanel
+                key={`${preferences.outcomeAssistant.defaultChannel}:${preferences.outcomeAssistant.defaultVariant}`}
                 plan={entitlementPlan}
                 planFeatureGatingEnabled={planFeatureGatingEnabled}
                 creditBillingEnabled={creditBillingEnabled}
@@ -1395,33 +1469,21 @@ export function WorkspaceClient() {
                     nextRefreshAt: credits.nextRefreshAt,
                   } : current);
                 }}
+                preferences={preferencesFeatureEnabled ? preferences.outcomeAssistant : undefined}
               />
             ) : (
               <>
-            <div className="sticky top-0 z-10 flex w-full items-center justify-start bg-[#faf9f6]/70 px-4 py-3 backdrop-blur-md md:justify-center md:px-10 md:py-6">
-              <div className="flex max-w-full items-center justify-start gap-2 overflow-x-auto rounded-full border border-border-subtle bg-surface-container-low p-1.5 md:flex-wrap md:justify-center">
-                {tones.map((tone) => {
-                  const isSelected = selectedTone === tone;
-
-                  return (
-                    <button
-                      aria-pressed={isSelected}
-                      className={
-                        isSelected
-                          ? "shrink-0 rounded-full bg-primary px-4 py-2 text-sm font-medium leading-5 text-white shadow-md transition-all md:px-5"
-                          : "shrink-0 rounded-full px-4 py-2 text-sm font-medium leading-5 text-text-muted transition-all hover:bg-surface-container md:px-5"
-                      }
-                      disabled={isLoading}
-                      key={tone}
-                      onClick={() => handleToneChange(tone)}
-                      type="button"
-                    >
-                      {tone}
-                    </button>
-                  );
-                })}
+            {preferencesFeatureEnabled ? <QuickStylesBar
+              disabled={isLoading}
+              onPreferencesChange={setPreferences}
+              onSelect={handleToneChange}
+              preferences={preferences}
+              selectedTone={selectedTone}
+            /> : (
+              <div className="flex gap-2 overflow-x-auto border-b border-border-subtle px-4 py-3 md:justify-center">
+                {tones.map((tone) => <button aria-pressed={selectedTone === tone} className={selectedTone === tone ? "min-h-11 shrink-0 rounded-lg bg-primary px-4 text-sm font-semibold text-white" : "min-h-11 shrink-0 rounded-lg border border-border-subtle bg-white px-4 text-sm font-semibold text-text-muted"} key={tone} onClick={() => handleToneChange(tone)} type="button">{tone}</button>)}
               </div>
-            </div>
+            )}
 
             <div className="flex-1 overflow-y-auto px-4 py-6 pb-40 md:px-10 md:py-8 md:pb-48">
               <div className="mx-auto flex max-w-3xl flex-col gap-8">

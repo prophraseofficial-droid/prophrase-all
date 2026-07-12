@@ -108,3 +108,13 @@ export type UniversalClipboardItem = {
   created_at: string;
   updated_at: string;
 };
+
+export type UserPreferenceRow = {
+  user_id: string;
+  preferences_version: 1;
+  preferences: Record<string, unknown>;
+  onboarding_completed: boolean;
+  existing_notice_dismissed: boolean;
+  created_at: string;
+  updated_at: string;
+};

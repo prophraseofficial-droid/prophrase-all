@@ -7,6 +7,17 @@ import { getProfileAndUsageSummary } from "@/lib/usage/usage";
 import { getBillingFlags } from "@/lib/billing/flags";
 import { getCreditBalance } from "@/lib/billing/account";
 import { historyCutoffForUser } from "@/lib/billing/entitlements";
+import { getUserPreferenceState } from "@/lib/preferences/service";
+import {
+  intentLabels,
+  intentOptions,
+  quickStyleGroups,
+  quickStyleRegistry,
+  recipientLabels,
+  recipientOptions,
+  channelOptions,
+} from "@/lib/preferences/registry";
+import { channelLabels } from "@/lib/outcome-assistant/types";
 
 export async function GET(request: Request) {
   const { user, response } = await requireUser(request);
@@ -23,12 +34,13 @@ export async function GET(request: Request) {
     if (billingFlags.planFeatureGatingEnabled) {
       threadsQuery = threadsQuery.gte("updated_at", await historyCutoffForUser(user.id));
     }
-    const [planData, threadsResult, creditBalance] = await Promise.all([
+    const [planData, threadsResult, creditBalance, preferenceState] = await Promise.all([
       getProfileAndUsageSummary(user.id),
       threadsQuery
         .order("updated_at", { ascending: false })
         .limit(50),
       billingFlags.creditBillingEnabled ? getCreditBalance(user.id) : Promise.resolve(null),
+      getUserPreferenceState(user, { tolerateUnavailable: true }),
     ]);
 
     if (threadsResult.error) throw threadsResult.error;
@@ -59,6 +71,14 @@ export async function GET(request: Request) {
       user: {
         email: user.email ?? "",
         name: displayName,
+      },
+      preferences: preferenceState,
+      preferenceOptions: {
+        quickStyles: quickStyleRegistry,
+        quickStyleGroups,
+        recipients: recipientOptions.map((id) => ({ id, label: recipientLabels[id] })),
+        intents: intentOptions.map((id) => ({ id, label: intentLabels[id] })),
+        channels: channelOptions.map((id) => ({ id, label: channelLabels[id] })),
       },
     });
   } catch {

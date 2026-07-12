@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { rewriteWithGemini } from "@/lib/ai/gemini";
+import { AiValidationError, rewriteWithGemini } from "@/lib/ai/gemini";
 import {
   BillingOperationError,
   commitCreditOperation,
@@ -139,13 +139,21 @@ export async function POST(request: Request, context: RouteContext) {
           content: String(message.content),
         })),
       });
-    } catch {
-      await releaseCreditOperation(user.id, creditContext, "ai_provider_error");
+    } catch (error) {
+      await releaseCreditOperation(
+        user.id,
+        creditContext,
+        error instanceof AiValidationError
+          ? "semantic_validation_failed"
+          : "ai_provider_error",
+      );
       creditContext = null;
       return apiError(
-        "AI_PROVIDER_ERROR",
-        "Unable to rewrite message right now. Please try again.",
-        502,
+        error instanceof AiValidationError ? "INVALID_AI_OUTPUT" : "AI_PROVIDER_ERROR",
+        error instanceof AiValidationError
+          ? error.userMessage
+          : "Unable to rewrite message right now. Please try again.",
+        error instanceof AiValidationError ? 422 : 502,
       );
     }
 
@@ -207,6 +215,9 @@ export async function POST(request: Request, context: RouteContext) {
       userMessage,
       assistantMessage,
       result: aiResult.text,
+      warnings: aiResult.warnings,
+      promptVersion: aiResult.promptVersion,
+      repaired: aiResult.repaired,
       usage,
       ...(credits ? { credits } : {}),
       thread: threadUpdateResult.data,

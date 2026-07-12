@@ -14,7 +14,10 @@ import {
   requireEntitlement,
 } from "@/lib/billing/entitlements";
 import { isOutcomeAssistantEnabled } from "@/lib/feature-flags";
-import { generateOutcomeAssistantResponse } from "@/lib/outcome-assistant/service";
+import {
+  generateOutcomeAssistantResponse,
+  OutcomeAssistantError,
+} from "@/lib/outcome-assistant/service";
 import { requireUser } from "@/lib/security/auth";
 import { checkRateLimit } from "@/lib/security/rateLimit";
 import {
@@ -138,6 +141,15 @@ export async function POST(request: Request) {
           : "AI_PROVIDER_ERROR",
         caughtError.userMessage,
         caughtError.statusCode === 429 ? 429 : 502,
+        credits ? { credits } : undefined,
+      );
+    }
+    if (caughtError instanceof OutcomeAssistantError) {
+      const credits = await creditFailureSummary(user.id, creditContext);
+      return apiError(
+        "INVALID_AI_OUTPUT",
+        caughtError.userMessage,
+        caughtError.status === 502 ? 422 : caughtError.status,
         credits ? { credits } : undefined,
       );
     }

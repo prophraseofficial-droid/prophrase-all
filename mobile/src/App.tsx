@@ -28,6 +28,12 @@ import {
   pricingUrl,
   rewriteMessage,
 } from "./api";
+import { OutcomeScreen } from "./OutcomeScreen";
+import {
+  PreferenceSettingsPanel,
+  QuickStylesOnboardingScreen,
+  QuickStylesPicker,
+} from "./preferences-ui";
 import { appConfig } from "./config";
 import { getDeviceLabel, getOrCreateDeviceId } from "./device";
 import { supabase } from "./supabase";
@@ -38,6 +44,8 @@ import type {
   ThreadMessage,
   ThreadSummary,
   Tone,
+  PreferenceOptions,
+  UserPreferences,
   UsageSummary,
   ViewName,
 } from "./types";
@@ -469,6 +477,9 @@ function HomeWrite({
   templateDraft,
   onTemplateDraftUsed,
   planFeatureGatingEnabled,
+  preferences,
+  preferenceOptions,
+  onPreferencesChange,
 }: {
   session: AppSession;
   selectedTone: Tone;
@@ -484,12 +495,14 @@ function HomeWrite({
   templateDraft: RewriteTemplate | null;
   onTemplateDraftUsed: () => void;
   planFeatureGatingEnabled: boolean;
+  preferences: UserPreferences;
+  preferenceOptions: PreferenceOptions;
+  onPreferencesChange: (preferences: UserPreferences) => void;
 }) {
   const [text, setText] = useState("");
   const [sourceText, setSourceText] = useState("");
   const [result, setResult] = useState("");
   const [threadId, setThreadId] = useState<string | null>(null);
-  const [toneSheetOpen, setToneSheetOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("");
 
@@ -596,10 +609,14 @@ function HomeWrite({
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
         >
-          <Pressable style={styles.toneSelector} onPress={() => setToneSheetOpen(true)}>
-            <Text style={styles.toneSelectorLabel}>Tone</Text>
-            <Text style={styles.toneSelectorValue}>{selectedTone}</Text>
-          </Pressable>
+          <QuickStylesPicker
+            onSelect={setSelectedTone}
+            onUpdate={onPreferencesChange}
+            options={preferenceOptions}
+            preferences={preferences}
+            selectedTone={selectedTone}
+            token={session.accessToken}
+          />
 
           <View style={styles.writeCard}>
             <Text style={styles.label}>ROUGH MESSAGE</Text>
@@ -652,12 +669,6 @@ function HomeWrite({
           {status ? <Text style={styles.statusText}>{status}</Text> : null}
         </ScrollView>
       </KeyboardAvoidingView>
-      <ToneSelectionSheet
-        visible={toneSheetOpen}
-        tone={selectedTone}
-        onSelect={setSelectedTone}
-        onClose={() => setToneSheetOpen(false)}
-      />
     </Shell>
   );
 }
@@ -779,11 +790,17 @@ function AccountSettings({
   usage,
   onUpgrade,
   onSignOut,
+  preferences,
+  preferenceOptions,
+  onPreferencesChange,
 }: {
   session: AppSession;
   usage: UsageSummary | null;
   onUpgrade: () => void;
   onSignOut: () => void;
+  preferences: UserPreferences;
+  preferenceOptions: PreferenceOptions;
+  onPreferencesChange: (preferences: UserPreferences) => void;
 }) {
   return (
     <Shell title="Account" subtitle="Settings">
@@ -809,6 +826,12 @@ function AccountSettings({
           <Text style={styles.settingLabel}>Universal Copy</Text>
           <Text style={styles.settingValue}>One-device claim mode</Text>
         </View>
+        <PreferenceSettingsPanel
+          onUpdate={onPreferencesChange}
+          options={preferenceOptions}
+          preferences={preferences}
+          token={session.accessToken}
+        />
         <Button title="Upgrade" onPress={onUpgrade} />
         <Button title="Sign out" variant="secondary" onPress={onSignOut} />
       </ScrollView>
@@ -824,7 +847,8 @@ function BottomNav({
   setView: (view: ViewName) => void;
 }) {
   const tabs: Array<{ view: ViewName; label: string }> = [
-    { view: "home", label: "Write" },
+    { view: "home", label: "Rephrase" },
+    { view: "outcome", label: "Outcome" },
     { view: "history", label: "History" },
     { view: "templates", label: "Templates" },
     { view: "settings", label: "Account" },
@@ -860,6 +884,8 @@ function MainApp({
   deviceLabel,
   onSignOut,
   planFeatureGatingEnabled,
+  initialPreferences,
+  preferenceOptions,
 }: {
   session: AppSession;
   selectedTone: Tone;
@@ -871,6 +897,8 @@ function MainApp({
   deviceLabel: string;
   onSignOut: () => void;
   planFeatureGatingEnabled: boolean;
+  initialPreferences: UserPreferences;
+  preferenceOptions: PreferenceOptions;
 }) {
   const [view, setView] = useState<ViewName>("home");
   const [threads, setThreads] = useState(initialThreads);
@@ -880,6 +908,7 @@ function MainApp({
   const [upgradeBusy, setUpgradeBusy] = useState(false);
   const [limitMessage, setLimitMessage] = useState("");
   const [templateDraft, setTemplateDraft] = useState<RewriteTemplate | null>(null);
+  const [preferences, setPreferences] = useState(initialPreferences);
 
   function openUpgrade(message?: string) {
     if (message) setLimitMessage(message);
@@ -925,6 +954,16 @@ function MainApp({
           templateDraft={templateDraft}
           onTemplateDraftUsed={() => setTemplateDraft(null)}
           planFeatureGatingEnabled={planFeatureGatingEnabled}
+          preferences={preferences}
+          preferenceOptions={preferenceOptions}
+          onPreferencesChange={setPreferences}
+        />
+      ) : null}
+      {view === "outcome" ? (
+        <OutcomeScreen
+          options={preferenceOptions}
+          preferences={preferences}
+          session={session}
         />
       ) : null}
       {view === "history" ? (
@@ -939,6 +978,9 @@ function MainApp({
           usage={usage}
           onUpgrade={() => openUpgrade()}
           onSignOut={onSignOut}
+          preferences={preferences}
+          preferenceOptions={preferenceOptions}
+          onPreferencesChange={setPreferences}
         />
       ) : null}
       <BottomNav view={view} setView={setView} />
@@ -971,6 +1013,8 @@ export default function App() {
   const [templates, setTemplates] = useState<RewriteTemplate[]>([]);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [planFeatureGatingEnabled, setPlanFeatureGatingEnabled] = useState(false);
+  const [preferences, setPreferences] = useState<UserPreferences | null>(null);
+  const [preferenceOptions, setPreferenceOptions] = useState<PreferenceOptions | null>(null);
   const [deviceId, setDeviceId] = useState("");
   const [deviceLabel, setDeviceLabel] = useState("Mobile device");
   const googleClientId =
@@ -1106,12 +1150,18 @@ export default function App() {
       setPlanFeatureGatingEnabled(workspace.planFeatureGatingEnabled);
       setThreads(workspace.threads ?? []);
       setTemplates(workspace.templates ?? []);
+      setPreferences(workspace.preferences.preferences);
+      setPreferenceOptions(workspace.preferenceOptions);
+      const defaultTone = workspace.preferenceOptions.quickStyles.find(
+        (style) => style.id === workspace.preferences.preferences.rephrase.defaultStyle,
+      )?.tone;
+      if (defaultTone) setSelectedTone(defaultTone);
       setSession({
         ...nextAppSession,
         name: workspace.user?.name || nextAppSession.name,
         email: workspace.user?.email || nextAppSession.email,
       });
-      setScreen("home");
+      setScreen(workspace.preferences.onboardingRequired ? "quick-styles" : "home");
     } catch {
       Alert.alert("Workspace unavailable", "Please check your API URL and sign in again.");
     }
@@ -1199,6 +1249,8 @@ export default function App() {
     setUsage(null);
     setThreads([]);
     setTemplates([]);
+    setPreferences(null);
+    setPreferenceOptions(null);
     setScreen("onboarding-value");
   }
 
@@ -1211,17 +1263,30 @@ export default function App() {
     );
   }
 
-  if (!session || !["home", "history", "templates", "settings"].includes(screen)) {
+  if (screen === "quick-styles" && session && preferences && preferenceOptions) {
     return (
       <SafeAreaProvider>
         <StatusBar style="dark" />
-        {screen === "onboarding-tone" ? (
-          <OnboardingToneChoice
-            selectedTone={selectedTone}
-            onSelect={setSelectedTone}
-            onNext={() => setScreen("onboarding-start")}
-          />
-        ) : screen === "onboarding-start" ? (
+        <QuickStylesOnboardingScreen
+          onComplete={(nextPreferences) => {
+            setPreferences(nextPreferences);
+            const tone = preferenceOptions.quickStyles.find((style) => style.id === nextPreferences.rephrase.defaultStyle)?.tone;
+            if (tone) setSelectedTone(tone);
+            setScreen("home");
+          }}
+          options={preferenceOptions}
+          preferences={preferences}
+          token={session.accessToken}
+        />
+      </SafeAreaProvider>
+    );
+  }
+
+  if (!session || !["home", "outcome", "history", "templates", "settings"].includes(screen)) {
+    return (
+      <SafeAreaProvider>
+        <StatusBar style="dark" />
+        {screen === "onboarding-start" ? (
           <OnboardingGetStarted
             email={email}
             setEmail={setEmail}
@@ -1230,11 +1295,13 @@ export default function App() {
             onStart={sendMagicLink}
           />
         ) : (
-          <OnboardingValueProp onNext={() => setScreen("onboarding-tone")} />
+          <OnboardingValueProp onNext={() => setScreen("onboarding-start")} />
         )}
       </SafeAreaProvider>
     );
   }
+
+  if (!preferences || !preferenceOptions) return null;
 
   return (
     <SafeAreaProvider>
@@ -1250,6 +1317,8 @@ export default function App() {
         deviceLabel={deviceLabel}
         onSignOut={signOut}
         planFeatureGatingEnabled={planFeatureGatingEnabled}
+        initialPreferences={preferences}
+        preferenceOptions={preferenceOptions}
       />
     </SafeAreaProvider>
   );

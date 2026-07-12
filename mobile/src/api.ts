@@ -3,6 +3,13 @@ import type {
   ThreadMessage,
   ThreadSummary,
   Tone,
+  UserPreferences,
+  PreferenceOptions,
+  PreferenceState,
+  RecipientType,
+  IntentType,
+  CommunicationChannel,
+  OutcomeAssistantResponse,
   UniversalClipboardMetadata,
   UsageSummary,
 } from "./types";
@@ -73,6 +80,8 @@ export async function loadWorkspace(token: string) {
       email: string;
       name: string;
     };
+    preferences: PreferenceState;
+    preferenceOptions: PreferenceOptions;
   }>({ path: "/api/workspace/bootstrap", token });
   return {
     ...data,
@@ -82,6 +91,54 @@ export async function loadWorkspace(token: string) {
     },
     planFeatureGatingEnabled: Boolean(data.creditBilling?.planFeatureGatingEnabled),
   };
+}
+
+export async function updatePreferences({
+  token,
+  patch,
+}: {
+  token: string;
+  patch: Partial<UserPreferences> & {
+    rephrase?: Partial<UserPreferences["rephrase"]>;
+    outcomeAssistant?: Partial<UserPreferences["outcomeAssistant"]>;
+  };
+}) {
+  return requestJson<PreferenceState>({
+    path: "/api/user/preferences",
+    token,
+    method: "PATCH",
+    body: patch as Record<string, unknown>,
+  });
+}
+
+export async function prepareOutcomeMessage({
+  token,
+  originalText,
+  recipient,
+  intent,
+  channel,
+}: {
+  token: string;
+  originalText: string;
+  recipient: RecipientType;
+  intent: IntentType;
+  channel: CommunicationChannel;
+}) {
+  return requestJson<OutcomeAssistantResponse>({
+    path: "/api/outcome-assistant",
+    token,
+    method: "POST",
+    idempotencyKey: `mobile-outcome-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
+    body: {
+      originalText,
+      recipient,
+      intent,
+      channel,
+      urgency: "none",
+      lockedFacts: [],
+      languageMode: "standard",
+    },
+  });
 }
 
 export async function rewriteMessage({
