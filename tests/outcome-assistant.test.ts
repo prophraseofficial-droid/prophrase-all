@@ -12,7 +12,10 @@ import {
   verifyLockedFacts,
 } from "../lib/outcome-assistant/facts.ts";
 import { deterministicRisks, sortRisks } from "../lib/outcome-assistant/risks.ts";
-import { parseOutcomeAssistantJson } from "../lib/outcome-assistant/schema.ts";
+import {
+  parseOutcomeAssistantJson,
+  parseOutcomeAssistantJsonLenient,
+} from "../lib/outcome-assistant/schema.ts";
 
 const validResponse = {
   detectedLanguage: "English",
@@ -211,6 +214,43 @@ test("rejects missing version, duplicate version, invalid severity and empty mes
   );
 });
 
+test("lenient repair preserves valid variants while dropping malformed metadata", () => {
+  const repaired = parseOutcomeAssistantJsonLenient(JSON.stringify({
+    understoodIntent: "Prepare a respectful request",
+    variants: validResponse.variants.map((variant, index) => ({
+      label: variant.label,
+      message: variant.message,
+      ...(index === 0
+        ? { risks: [{ type: "unknown_risk", severity: "critical" }] }
+        : {}),
+    })),
+  }));
+  assert.deepEqual(repaired.variants.map((variant) => variant.id), [
+    "safe",
+    "balanced",
+    "firm",
+  ]);
+  assert.equal(repaired.variants[0]?.risks.length, 0);
+  assert.equal(repaired.variants[1]?.readerInterpretation.length > 0, true);
+});
+
+test("lenient repair still rejects duplicate or missing messages", () => {
+  assert.throws(() => parseOutcomeAssistantJsonLenient(JSON.stringify({
+    variants: [
+      validResponse.variants[0],
+      validResponse.variants[0],
+      validResponse.variants[2],
+    ],
+  })), /duplicate/i);
+  assert.throws(() => parseOutcomeAssistantJsonLenient(JSON.stringify({
+    variants: [
+      validResponse.variants[0],
+      { ...validResponse.variants[1], message: "" },
+      validResponse.variants[2],
+    ],
+  })), /Missing balanced message/);
+});
+
 test("sanitises analytics metadata", () => {
   const metadata = sanitizeOutcomeAnalytics({
     recipient: "manager",
@@ -232,4 +272,3 @@ test("sanitises analytics metadata", () => {
     languageMode: undefined,
   });
 });
-

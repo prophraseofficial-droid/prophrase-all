@@ -1,0 +1,17 @@
+export const billingScenarios = {
+  freeFull: { plan: "free", available: 15, reserved: 0 },
+  freeFive: { plan: "free", available: 5, reserved: 0 },
+  freeEmpty: { plan: "free", available: 0, reserved: 0 },
+  plusMonthly: { plan: "plus", interval: "monthly", status: "active", available: 300 },
+  plusAnnual: { plan: "plus", interval: "annual", status: "active", available: 300 },
+  proMonthly: { plan: "pro", interval: "monthly", status: "active", available: 1500 },
+  proAnnual: { plan: "pro", interval: "annual", status: "active", available: 1500 },
+  pastDuePlus: { plan: "plus", interval: "monthly", status: "grace_period", available: 21 },
+  canceledPro: { plan: "pro", interval: "annual", status: "canceled", cancelAtPeriodEnd: true },
+  expired: { plan: "free", interval: "none", status: "expired", available: 15 },
+  upgradeScheduled: { plan: "plus", pendingPlan: "pro", effectiveAt: "period_end" },
+  downgradeScheduled: { plan: "pro", pendingPlan: "plus", effectiveAt: "period_end" },
+  multipleBuckets: { buckets: [{ amount: 2, expiresInDays: 1 }, { amount: 8, expiresInDays: 20 }] },
+  staleReservation: { status: "reserved", expiresInMinutes: -1, cost: 2 },
+  duplicateWebhook: { providerEventId: "fixture-event-1", deliveries: 2, expectedApplications: 1 },
+} as const;

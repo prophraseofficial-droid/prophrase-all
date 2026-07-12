@@ -308,7 +308,7 @@ export default function LegalPage() {
               ProPhrase
             </span>
             <p className="text-xs font-semibold leading-4 text-text-muted">
-              © 2024 ProPhrase. All rights reserved.
+              © 2026 ProPhrase. All rights reserved.
             </p>
           </div>
           <div className="flex flex-wrap justify-center gap-6">

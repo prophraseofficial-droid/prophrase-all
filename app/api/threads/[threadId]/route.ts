@@ -8,6 +8,8 @@ import {
   uuidSchema,
   validationError,
 } from "@/lib/security/validation";
+import { getBillingFlags } from "@/lib/billing/flags";
+import { historyCutoffForUser } from "@/lib/billing/entitlements";
 
 type RouteContext = {
   params: Promise<{ threadId: string }>;
@@ -28,11 +30,15 @@ export async function GET(request: Request, context: RouteContext) {
 
   try {
     const supabase = createSupabaseAdminClient();
-    const { data: thread, error } = await supabase
+    let threadQuery = supabase
       .from("threads")
       .select("*")
       .eq("id", threadId)
-      .eq("user_id", user.id)
+      .eq("user_id", user.id);
+    if (getBillingFlags().planFeatureGatingEnabled) {
+      threadQuery = threadQuery.gte("updated_at", await historyCutoffForUser(user.id));
+    }
+    const { data: thread, error } = await threadQuery
       .maybeSingle();
 
     if (error) throw error;

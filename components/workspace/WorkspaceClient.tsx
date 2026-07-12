@@ -3,16 +3,18 @@
 import Image from "next/image";
 import Link from "next/link";
 import type { ChangeEvent } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { OutcomeAssistantPanel } from "@/components/outcome-assistant/OutcomeAssistantPanel";
 import { isOutcomeAssistantClientEnabled } from "@/lib/feature-flags";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { RewriteTemplate } from "@/lib/templates";
 import type { Tone } from "@/lib/tones";
 import { isTone, tones } from "@/lib/tones";
+import { estimateCreditCost } from "@/lib/billing/credits";
+import type { CreditBalance } from "@/lib/billing/types";
 
 type UsageSummary = {
-  plan: "free" | "pro_monthly" | "pro_yearly";
+  plan: "free" | "plus" | "pro" | "pro_monthly" | "pro_yearly";
   isPro: boolean;
   rewriteCount: number;
   rewriteLimit: number;
@@ -30,6 +32,11 @@ type ApiErrorResponse = {
     yearly: string;
   };
   usage?: UsageSummary;
+  requiredCredits?: number;
+  availableCredits?: number;
+  nextRefreshAt?: string | null;
+  currentPlan?: string;
+  requiredPlan?: string;
 };
 
 type UniversalClipboardMetadata = {
@@ -291,6 +298,9 @@ export function WorkspaceClient() {
   const [threadMessages, setThreadMessages] = useState<ThreadMessage[]>([]);
   const [templates, setTemplates] = useState<RewriteTemplate[]>([]);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
+  const [creditBillingEnabled, setCreditBillingEnabled] = useState(false);
+  const [planFeatureGatingEnabled, setPlanFeatureGatingEnabled] = useState(false);
+  const [creditBalance, setCreditBalance] = useState<CreditBalance | null>(null);
   const [error, setError] = useState("");
   const [upgradeMessage, setUpgradeMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -321,11 +331,24 @@ export function WorkspaceClient() {
   const hasConversation = Boolean(lastInput || outputText || isLoading);
   const hasStoredConversation = threadMessages.length > 0;
   const userInitial = (userName || userEmail || "P").trim().charAt(0).toUpperCase();
-  const planLabel = usage?.isPro
-    ? usage.plan === "pro_yearly"
-      ? "Pro Yearly"
-      : "Pro Monthly"
-    : "Free";
+  const planLabel = creditBalance
+    ? `${creditBalance.plan === "free" ? "Free" : creditBalance.plan === "plus" ? "Plus" : "Pro"}${creditBalance.billingInterval === "annual" ? " Annual" : creditBalance.billingInterval === "monthly" ? " Monthly" : ""}`
+    : usage?.isPro
+      ? usage.plan === "pro_yearly" ? "Pro Yearly" : "Pro Monthly"
+      : "Free";
+  const entitlementPlan: "free" | "plus" | "pro" = creditBalance?.plan ??
+    (usage?.plan === "pro" ? "pro" : usage?.plan === "plus" || usage?.plan === "pro_monthly" || usage?.plan === "pro_yearly" ? "plus" : "free");
+  const creditEstimate = useMemo(() => {
+    if (!creditBillingEnabled || !inputText.trim()) return null;
+    try { return estimateCreditCost("rephrase", inputText); } catch { return null; }
+  }, [creditBillingEnabled, inputText]);
+  const lowCreditMessage = useMemo(() => {
+    if (!creditBalance) return "";
+    if (creditBalance.available === 0) return `No credits remaining. Refreshes ${creditBalance.nextRefreshAt ? new Intl.DateTimeFormat("en-IN", { dateStyle: "medium" }).format(new Date(creditBalance.nextRefreshAt)) : "at the next credit period"}.`;
+    if (creditBalance.plan === "free" && creditBalance.available <= 5) return `${creditBalance.available} credits remaining today.`;
+    if (creditBalance.plan !== "free" && creditBalance.available / Math.max(1, creditBalance.allowance) <= 0.2) return `${creditBalance.available} of ${creditBalance.allowance} monthly credits remain.`;
+    return "";
+  }, [creditBalance]);
   const canClaimUniversalItem =
     Boolean(universalItem) &&
     universalItem?.status === "available" &&
@@ -519,6 +542,12 @@ export function WorkspaceClient() {
         const data = (await response.json().catch(() => null)) as
           | {
               usage?: UsageSummary;
+              creditBilling?: {
+                enabled?: boolean;
+                shadowMode?: boolean;
+                planFeatureGatingEnabled?: boolean;
+                balance?: CreditBalance | null;
+              };
               threads?: ThreadSummary[];
               templates?: RewriteTemplate[];
               user?: {
@@ -534,6 +563,9 @@ export function WorkspaceClient() {
         }
 
         setUsage(data.usage ?? null);
+        setCreditBillingEnabled(Boolean(data.creditBilling?.enabled));
+        setPlanFeatureGatingEnabled(Boolean(data.creditBilling?.planFeatureGatingEnabled));
+        setCreditBalance(data.creditBilling?.balance ?? null);
         setThreads(data.threads ?? []);
         setThreadId(data.threads?.[0]?.id ?? null);
         setTemplates(data.templates ?? []);
@@ -657,8 +689,8 @@ export function WorkspaceClient() {
       return;
     }
 
-    if (trimmedText.length > 2000) {
-      setError("Please keep your message under 2000 characters.");
+    if (Array.from(trimmedText).length > 5000) {
+      setError("Please keep your message under 5,000 characters.");
       return;
     }
 
@@ -675,7 +707,10 @@ export function WorkspaceClient() {
     try {
       const response = await fetch("/api/rewrite", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": crypto.randomUUID(),
+        },
         body: JSON.stringify({
           text: trimmedText,
           tone: nextTone,
@@ -690,13 +725,14 @@ export function WorkspaceClient() {
         userMessage?: ThreadMessage;
         assistantMessage?: ThreadMessage;
         usage?: UsageSummary;
+        credits?: { charged: number; remaining: number; nextRefreshAt: string | null };
       } & ApiErrorResponse;
 
       if (!response.ok) {
-        if (data.upgrade || data.error?.includes("LIMIT")) {
+        if (data.upgrade || ["INSUFFICIENT_CREDITS", "INPUT_LIMIT_EXCEEDED", "PLAN_UPGRADE_REQUIRED"].includes(data.error ?? "") || data.error?.includes("LIMIT")) {
           setUpgradeMessage(
             data.message ||
-              "You’ve used your free rewrites for today. Upgrade to Pro for unlimited rewrites.",
+              "You’ve used your free rewrites for today. Compare Plus and Pro credit plans.",
           );
           if (data.usage) setUsage(data.usage);
           return;
@@ -707,6 +743,9 @@ export function WorkspaceClient() {
       setOutputText(data.result || "");
       setThreadId(data.threadId ?? threadId);
       setUsage(data.usage ?? usage);
+      if (data.credits && creditBalance) {
+        setCreditBalance({ ...creditBalance, available: data.credits.remaining, nextRefreshAt: data.credits.nextRefreshAt });
+      }
       if (data.thread) {
         upsertThreadSummary(data.thread);
       }
@@ -734,6 +773,14 @@ export function WorkspaceClient() {
   }
 
   function handleToneChange(tone: Tone) {
+    if (
+      planFeatureGatingEnabled &&
+      entitlementPlan === "free" &&
+      !["Professional", "Polite", "Shorter"].includes(tone)
+    ) {
+      setUpgradeMessage(`${tone} is available on Plus and Pro.`);
+      return;
+    }
     setSelectedTone(tone);
 
     if (!outputText && !lastInput) {
@@ -848,6 +895,10 @@ export function WorkspaceClient() {
   }
 
   function startVoiceInput() {
+    if (planFeatureGatingEnabled && entitlementPlan === "free") {
+      setUpgradeMessage("Voice input is available on Plus and Pro.");
+      return;
+    }
     const speechWindow = window as SpeechWindow;
     const SpeechRecognition =
       speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
@@ -1105,10 +1156,12 @@ export function WorkspaceClient() {
           <div className="rounded-2xl border border-border-subtle bg-surface-container-low p-4">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-xs font-semibold uppercase leading-4 text-text-muted">
-                {usage?.isPro ? "Plan" : "Credits"}
+                {creditBillingEnabled ? "Credits" : usage?.isPro ? "Plan" : "Credits"}
               </span>
               <span className="text-xs font-bold leading-4 text-primary">
-                {usage?.isPro
+                {creditBalance
+                  ? `${creditBalance.available} / ${creditBalance.allowance}`
+                  : usage?.isPro
                   ? "Pro"
                   : usage
                     ? `${usage.rewriteRemaining} left`
@@ -1119,7 +1172,9 @@ export function WorkspaceClient() {
               <div
                 className="h-full bg-primary"
                 style={{
-                  width: usage?.isPro
+                  width: creditBalance
+                    ? `${Math.max(0, Math.min(100, (creditBalance.available / Math.max(1, creditBalance.allowance)) * 100))}%`
+                    : usage?.isPro
                     ? "100%"
                     : usage
                       ? `${Math.max(0, Math.min(100, (usage.rewriteRemaining / usage.rewriteLimit) * 100))}%`
@@ -1127,6 +1182,7 @@ export function WorkspaceClient() {
                 }}
               />
             </div>
+            {lowCreditMessage ? <p className="mt-2 text-xs font-semibold leading-4 text-text-muted" role="status">{lowCreditMessage}</p> : null}
           </div>
 
           <div className="relative" ref={accountMenuRef}>
@@ -1156,17 +1212,17 @@ export function WorkspaceClient() {
                       <span>Plan</span>
                       <span className="font-semibold text-primary">{planLabel}</span>
                     </div>
-                    {!usage?.isPro ? (
+                    {creditBillingEnabled || !usage?.isPro ? (
                       <div className="mt-1 flex items-center justify-between gap-3">
                         <span>Credits</span>
                         <span className="font-semibold text-primary">
-                          {usage ? `${usage.rewriteRemaining} left` : "Loading"}
+                          {creditBalance ? `${creditBalance.available} left` : usage ? `${usage.rewriteRemaining} left` : "Loading"}
                         </span>
                       </div>
                     ) : null}
                     <Link
                       className="mt-2 inline-flex font-semibold text-primary"
-                      href="/pricing"
+                      href="/account/billing"
                     >
                       Manage plan
                     </Link>
@@ -1244,9 +1300,11 @@ export function WorkspaceClient() {
                 </p>
               ) : null}
               <div className="mt-3 flex items-center justify-between gap-3 rounded-xl bg-surface-container-low px-3 py-2 text-xs font-semibold text-text-muted">
-                <span>{usage?.isPro ? "Plan" : "Credits"}</span>
+                <span>{creditBillingEnabled ? "Credits" : usage?.isPro ? "Plan" : "Credits"}</span>
                 <span className="text-primary">
-                  {usage?.isPro
+                  {creditBalance
+                    ? `${creditBalance.available} left`
+                    : usage?.isPro
                     ? "Pro"
                     : usage
                       ? `${usage.rewriteRemaining} left`
@@ -1256,7 +1314,7 @@ export function WorkspaceClient() {
               <div className="mt-2 flex gap-2">
                 <Link
                   className="flex-1 rounded-xl border border-border-subtle px-3 py-2 text-center text-xs font-semibold text-primary"
-                  href="/pricing"
+                  href="/account/billing"
                 >
                   Plan
                 </Link>
@@ -1325,7 +1383,19 @@ export function WorkspaceClient() {
               </div>
             ) : null}
             {outcomeAssistantEnabled && workspaceMode === "outcome" ? (
-              <OutcomeAssistantPanel />
+              <OutcomeAssistantPanel
+                plan={entitlementPlan}
+                planFeatureGatingEnabled={planFeatureGatingEnabled}
+                creditBillingEnabled={creditBillingEnabled}
+                creditBalance={creditBalance}
+                onCreditsChanged={(credits) => {
+                  setCreditBalance((current) => current ? {
+                    ...current,
+                    available: credits.remaining,
+                    nextRefreshAt: credits.nextRefreshAt,
+                  } : current);
+                }}
+              />
             ) : (
               <>
             <div className="sticky top-0 z-10 flex w-full items-center justify-start bg-[#faf9f6]/70 px-4 py-3 backdrop-blur-md md:justify-center md:px-10 md:py-6">
@@ -1592,24 +1662,23 @@ export function WorkspaceClient() {
                 {upgradeMessage ? (
                   <div className="rounded-3xl border border-border-subtle bg-white p-6 shadow-lg">
                     <h3 className="text-xl font-semibold tracking-[-0.01em] text-primary">
-                      You&apos;ve used your free rewrites for today.
+                      More credits are needed
                     </h3>
                     <p className="mt-2 text-sm leading-6 text-text-muted">
-                      {upgradeMessage} Upgrade to Pro for unlimited rewrites, voice
-                      input, saved templates, and longer history.
+                      {upgradeMessage} Compare Plus and Pro for more credits and features.
                     </p>
                     <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                       <Link
                         className="rounded-full bg-primary px-5 py-3 text-center text-sm font-semibold text-white"
                         href="/pricing"
                       >
-                        Upgrade for ₹99/month
+                        View plans
                       </Link>
                       <Link
                         className="rounded-full border border-border-subtle px-5 py-3 text-center text-sm font-semibold text-primary"
                         href="/pricing"
                       >
-                        Get yearly for ₹699
+                        Manage billing
                       </Link>
                       <button
                         className="rounded-full px-5 py-3 text-sm font-semibold text-text-muted"
@@ -1677,6 +1746,11 @@ export function WorkspaceClient() {
                           : "Finishing transcript..."}
                     </p>
                   ) : null}
+                  {creditEstimate && creditBalance ? (
+                    <p className="px-2 text-xs font-semibold leading-4 text-text-muted" aria-live="polite">
+                      Estimate: {creditEstimate.creditCost} {creditEstimate.creditCost === 1 ? "credit" : "credits"} · {Math.max(0, creditBalance.available - creditEstimate.creditCost)} after success
+                    </p>
+                  ) : null}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   <input
@@ -1700,7 +1774,7 @@ export function WorkspaceClient() {
                     onClick={() => void rewriteMessage()}
                     type="button"
                   >
-                    <span className="hidden sm:inline">{isLoading ? "Writing" : "Rewrite"}</span>
+                    <span className="hidden sm:inline">{isLoading ? "Writing" : creditEstimate ? `Rewrite · ${creditEstimate.creditCost}` : "Rewrite"}</span>
                     <Icon className="text-xl" name="spark" />
                   </button>
                 </div>

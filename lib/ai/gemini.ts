@@ -150,6 +150,12 @@ export async function generateOutcomeAssistantWithGemini({
 }) {
   const apiKey = process.env.GEMINI_API_KEY;
   const model = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
+  const configuredMaxOutputTokens = Number(
+    process.env.OUTCOME_GEMINI_MAX_OUTPUT_TOKENS || 6000,
+  );
+  const maxOutputTokens = Number.isSafeInteger(configuredMaxOutputTokens)
+    ? Math.min(8192, Math.max(3000, configuredMaxOutputTokens))
+    : 6000;
 
   if (!apiKey) {
     throw new AiProviderError({
@@ -178,7 +184,7 @@ export async function generateOutcomeAssistantWithGemini({
           ],
           generationConfig: {
             temperature: 0.25,
-            maxOutputTokens: 2600,
+            maxOutputTokens,
             responseMimeType: "application/json",
           },
         }),

@@ -6,6 +6,8 @@ import {
   trackOutcomeEvent,
 } from "@/lib/outcome-assistant/analytics";
 import { extractLockedFactCandidates } from "@/lib/outcome-assistant/facts";
+import { estimateCreditCost } from "@/lib/billing/credits";
+import type { CreditBalance } from "@/lib/billing/types";
 import type {
   CommunicationChannel,
   IntentType,
@@ -36,6 +38,11 @@ type ApiErrorResponse = {
     rewriteRemaining: number;
     rewriteLimit: number;
     isPro: boolean;
+  };
+  credits?: {
+    charged: number;
+    remaining: number;
+    nextRefreshAt: string | null;
   };
 };
 
@@ -139,7 +146,23 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function OutcomeAssistantPanel() {
+export function OutcomeAssistantPanel({
+  plan = "free",
+  planFeatureGatingEnabled = false,
+  creditBillingEnabled = false,
+  creditBalance = null,
+  onCreditsChanged,
+}: {
+  plan?: "free" | "plus" | "pro";
+  planFeatureGatingEnabled?: boolean;
+  creditBillingEnabled?: boolean;
+  creditBalance?: CreditBalance | null;
+  onCreditsChanged?: (credits: {
+    charged: number;
+    remaining: number;
+    nextRefreshAt: string | null;
+  }) => void;
+}) {
   const [originalText, setOriginalText] = useState("");
   const [recipient, setRecipient] = useState<RecipientType | "">("");
   const [customRecipient, setCustomRecipient] = useState("");
@@ -182,6 +205,17 @@ export function OutcomeAssistantPanel() {
   const selectedMessage = selectedVersion
     ? editedMessages[selectedVersion.id] ?? selectedVersion.message
     : "";
+  const creditEstimate = useMemo(() => {
+    if (!creditBillingEnabled || !originalText.trim()) return null;
+    try {
+      return estimateCreditCost("outcome_assistant", originalText);
+    } catch {
+      return null;
+    }
+  }, [creditBillingEnabled, originalText]);
+  const usedCredits = creditBalance
+    ? Math.max(0, creditBalance.allowance - creditBalance.available)
+    : 0;
 
   useEffect(() => {
     if (!loading) return;
@@ -262,7 +296,10 @@ export function OutcomeAssistantPanel() {
       const startedAt = Date.now();
       const apiResponse = await fetch("/api/outcome-assistant", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": crypto.randomUUID(),
+        },
         body: JSON.stringify({
           originalText: nextText,
           recipient,
@@ -286,6 +323,7 @@ export function OutcomeAssistantPanel() {
       }
 
       setResponse(data);
+      if (data.credits) onCreditsChanged?.(data.credits);
       setEditedMessages(
         Object.fromEntries(data.variants.map((version) => [version.id, version.message])),
       );
@@ -325,6 +363,10 @@ export function OutcomeAssistantPanel() {
 
   function startVoiceInput() {
     if (typeof window === "undefined") return;
+    if (planFeatureGatingEnabled && plan === "free") {
+      setError("Voice input is available on Plus and Pro.");
+      return;
+    }
     const SpeechRecognition = getSpeechRecognition();
     if (!SpeechRecognition) {
       setVoiceStatus("unsupported");
@@ -410,6 +452,24 @@ export function OutcomeAssistantPanel() {
           <p className="mt-2 text-sm leading-6 text-text-muted">
             Tell ProPhrase who you are messaging and what you want to achieve.
           </p>
+          {creditBillingEnabled && creditBalance ? (
+            <div className="mt-5 grid grid-cols-3 gap-2 rounded-lg border border-border-subtle bg-white p-3" aria-label="Outcome Assistant credit summary">
+              <div>
+                <p className="text-xs font-semibold text-text-muted">Available</p>
+                <p className="mt-1 text-lg font-semibold text-primary">{creditBalance.available}</p>
+              </div>
+              <div className="border-x border-border-subtle px-3">
+                <p className="text-xs font-semibold text-text-muted">Used this period</p>
+                <p className="mt-1 text-lg font-semibold text-primary">{usedCredits}</p>
+              </div>
+              <div className="pl-2">
+                <p className="text-xs font-semibold text-text-muted">This message</p>
+                <p className="mt-1 text-lg font-semibold text-primary">
+                  {creditEstimate ? `~${creditEstimate.creditCost}` : "–"}
+                </p>
+              </div>
+            </div>
+          ) : null}
         </header>
 
         <section className="rounded-3xl border border-border-subtle bg-white p-5 shadow-sm md:p-6">
@@ -944,4 +1004,3 @@ export function OutcomeAssistantPanel() {
     </div>
   );
 }
-

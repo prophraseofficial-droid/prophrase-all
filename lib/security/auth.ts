@@ -12,6 +12,15 @@ function getBearerToken(request?: Request) {
   return token.trim();
 }
 
+export function requireTrustedMutation(request: Request) {
+  if (getBearerToken(request)) return null;
+  const origin = request.headers.get("origin");
+  const fetchSite = request.headers.get("sec-fetch-site");
+  const expectedOrigin = new URL(request.url).origin;
+  if (origin === expectedOrigin || (!origin && fetchSite === "same-origin")) return null;
+  return apiError("UNAUTHORIZED", "This request did not originate from ProPhrase.", 403);
+}
+
 export async function requireUser(request?: Request) {
   try {
     const bearerToken = getBearerToken(request);

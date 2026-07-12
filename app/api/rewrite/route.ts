@@ -1,8 +1,17 @@
 import { NextResponse } from "next/server";
 import { AiProviderError, rewriteWithGemini } from "@/lib/ai/gemini";
+import {
+  BillingOperationError,
+  creditFailureSummary,
+  commitCreditOperation,
+  prepareCreditOperation,
+  releaseCreditOperation,
+  type CreditOperationContext,
+} from "@/lib/billing/service";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { requireUser } from "@/lib/security/auth";
 import { checkRateLimit } from "@/lib/security/rateLimit";
+import { requireEntitlement, PlanUpgradeRequiredError } from "@/lib/billing/entitlements";
 import {
   apiError,
   getZodErrorMessage,
@@ -35,21 +44,32 @@ export async function POST(request: Request) {
     return validationError(getZodErrorMessage(parsed.error));
   }
 
+  let creditContext: CreditOperationContext | null = null;
+  let releaseReservationOnFailure = true;
   try {
     const supabase = createSupabaseAdminClient();
     const planData = await getProfileAndUsageSummary(user.id);
-    if (planData.usage.rewriteCount >= planData.usage.rewriteLimit) {
+    const billingFlags = (await import("@/lib/billing/flags")).getBillingFlags();
+    const creditEnforcementActive =
+      billingFlags.creditBillingEnabled && !billingFlags.creditBillingShadowMode;
+    if (
+      billingFlags.planFeatureGatingEnabled &&
+      !["Professional", "Polite", "Shorter"].includes(parsed.data.tone)
+    ) {
+      await requireEntitlement(user.id, "all_tones");
+    }
+    if (!creditEnforcementActive && planData.usage.rewriteCount >= planData.usage.rewriteLimit) {
       return apiError(
         planData.usage.isPro
           ? "PRO_FAIR_USE_LIMIT_REACHED"
           : "FREE_REWRITE_LIMIT_REACHED",
         planData.usage.isPro
           ? "Daily fair-use limit reached. Please try again tomorrow."
-          : "You’ve used your free rewrites for today. Upgrade to Pro for unlimited rewrites.",
+          : "You’ve used your free rewrites for today. Compare Plus and Pro credit plans.",
         planData.usage.isPro ? 429 : 402,
         {
           usage: planData.usage,
-          upgrade: { monthly: "₹99/month", yearly: "₹699/year" },
+          upgrade: { monthly: "₹99/month", yearly: "₹899/year" },
         },
       );
     }
@@ -87,7 +107,7 @@ export async function POST(request: Request) {
             ? "Thread fair-use limit reached. Please start a new thread."
             : "Free threads include 2 follow-ups. Upgrade to Pro for longer conversations.",
           followupLimit.isPro ? 429 : 402,
-          { upgrade: { monthly: "₹99/month", yearly: "₹699/year" } },
+          { upgrade: { monthly: "₹99/month", yearly: "₹899/year" } },
         );
       }
 
@@ -112,16 +132,24 @@ export async function POST(request: Request) {
             : "FREE_THREAD_LIMIT_REACHED",
           planData.usage.isPro
             ? "Thread fair-use limit reached. Please try again tomorrow."
-            : "You have used your free threads for today. Upgrade to Pro for unlimited threads.",
+            : "You have used your free threads for today. Compare Plus and Pro credit plans.",
           planData.usage.isPro ? 429 : 402,
           {
             usage: planData.usage,
-            upgrade: { monthly: "₹99/month", yearly: "₹699/year" },
+            upgrade: { monthly: "₹99/month", yearly: "₹899/year" },
           },
         );
       }
       isNewThread = true;
     }
+
+    creditContext = await prepareCreditOperation({
+      userId: user.id,
+      operation: "rephrase",
+      text: parsed.data.text,
+      idempotencyKey: request.headers.get("idempotency-key"),
+      feature: "core_rephrase",
+    });
 
     let aiResult: Awaited<ReturnType<typeof rewriteWithGemini>>;
     try {
@@ -133,6 +161,9 @@ export async function POST(request: Request) {
       });
     } catch (caughtError) {
       if (caughtError instanceof AiProviderError) {
+        await releaseCreditOperation(user.id, creditContext, "ai_provider_error");
+        const credits = await creditFailureSummary(user.id, creditContext);
+        creditContext = null;
         console.error("[rewrite] Gemini provider error", {
           providerStatus: caughtError.providerStatus,
           statusCode: caughtError.statusCode,
@@ -145,14 +176,19 @@ export async function POST(request: Request) {
             : "AI_PROVIDER_ERROR",
           caughtError.userMessage,
           caughtError.statusCode === 429 ? 429 : 502,
+          credits ? { credits } : undefined,
         );
       }
 
+      await releaseCreditOperation(user.id, creditContext, "ai_provider_error");
+      const credits = await creditFailureSummary(user.id, creditContext);
+      creditContext = null;
       console.error("[rewrite] Gemini provider error", caughtError);
       return apiError(
         "AI_PROVIDER_ERROR",
         "Unable to rewrite message right now. Please try again.",
         502,
+        credits ? { credits } : undefined,
       );
     }
 
@@ -224,14 +260,18 @@ export async function POST(request: Request) {
     if (threadUpdateResult.error) throw threadUpdateResult.error;
 
     const usage = buildUsageSummary(planData.profile, dailyUsage);
+    releaseReservationOnFailure = false;
+    const credits = await commitCreditOperation(creditContext);
 
     return NextResponse.json({
+      requestId: creditContext.requestId,
       result: aiResult.text,
       threadId,
       messageId: assistantMessage.id,
       userMessage,
       assistantMessage,
       usage,
+      ...(credits ? { credits } : {}),
       thread: threadUpdateResult.data ?? {
         id: threadId,
         title: fallbackTitle,
@@ -240,7 +280,27 @@ export async function POST(request: Request) {
         updated_at: now,
       },
     });
-  } catch {
-    return apiError("INTERNAL_ERROR", "Unable to rewrite message.", 500);
+  } catch (caughtError) {
+    if (releaseReservationOnFailure) {
+      await releaseCreditOperation(user.id, creditContext, "request_failed");
+    }
+    if (caughtError instanceof BillingOperationError) {
+      const status = caughtError.code === "INSUFFICIENT_CREDITS" ? 402
+        : caughtError.code === "INPUT_LIMIT_EXCEEDED" ? 403
+          : caughtError.code === "CREDIT_REQUEST_IN_PROGRESS" ? 409
+            : 400;
+      return apiError(caughtError.code, caughtError.message, status, {
+        ...caughtError.details,
+        ...(creditContext ? { requiredCredits: creditContext.estimate.creditCost } : {}),
+      });
+    }
+    if (caughtError instanceof PlanUpgradeRequiredError) {
+      return apiError(caughtError.code, caughtError.message, 403, {
+        feature: caughtError.feature,
+        requiredPlan: caughtError.requiredPlan,
+      });
+    }
+    const credits = await creditFailureSummary(user.id, creditContext);
+    return apiError("INTERNAL_ERROR", "Unable to rewrite message. No credits were used.", 500, credits ? { credits } : undefined);
   }
 }

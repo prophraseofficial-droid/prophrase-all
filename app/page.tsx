@@ -434,7 +434,7 @@ export default async function Home() {
             </a>
           </div>
           <div className="text-xs font-semibold leading-4 text-text-muted">
-            &copy; 2024 ProPhrase. All rights reserved.
+            &copy; 2026 ProPhrase. All rights reserved.
           </div>
         </div>
       </footer>

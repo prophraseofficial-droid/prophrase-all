@@ -1,10 +1,16 @@
-export type Plan = "free" | "pro_monthly" | "pro_yearly";
+export type Plan = "free" | "plus" | "pro" | "pro_monthly" | "pro_yearly";
 export type SubscriptionStatus =
   | "inactive"
+  | "free"
+  | "pending"
   | "active"
   | "cancelled"
+  | "canceled"
   | "past_due"
-  | "expired";
+  | "grace_period"
+  | "expired"
+  | "refunded"
+  | "chargeback";
 export type MessageRole = "user" | "assistant";
 export type DevicePlatform = "web" | "desktop" | "android" | "ios" | "extension";
 export type UniversalClipboardStatus = "available" | "claimed" | "expired";

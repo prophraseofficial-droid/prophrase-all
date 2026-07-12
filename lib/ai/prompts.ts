@@ -3,6 +3,9 @@ import type { Tone } from "@/lib/tones";
 export const toneInstructions: Record<Tone, string> = {
   Professional: `Rewrite this as a clear professional office message.
 Keep it polite, direct, and ready to send.`,
+  Polite: `Rewrite this as a polite and respectful work message.
+Keep the meaning and avoid unnecessary formality.`,
+  Shorter: `Rewrite this using fewer words while preserving every important fact.`,
   "Short & Crisp": `Rewrite this as a short and crisp work update.
 Keep it concise but clear.`,
   Human: `Rewrite this in a natural, human, friendly office tone.
@@ -10,8 +13,14 @@ Avoid sounding robotic or overly formal.`,
   Email: `Rewrite this as a professional email body.
 Do not add a subject line unless the user asks.
 Keep it polite and clear.`,
+  Slack: `Rewrite this as a concise, natural Slack message for a workplace channel or direct message.`,
+  Teams: `Rewrite this as a clear Microsoft Teams work message. Keep it conversational and actionable.`,
   "Jira Comment": `Rewrite this as a clear Jira comment or technical status update.
 Keep it concise, factual, and action-oriented.`,
+  WhatsApp: `Rewrite this as a professional but natural WhatsApp work message.`,
+  "Client-safe": `Rewrite this for an external client. Be clear, diplomatic, and avoid internal-only language.`,
+  "Manager-friendly": `Rewrite this for a manager. Lead with the outcome, status, or decision needed.`,
+  Firmer: `Rewrite this with a firmer boundary or request while remaining professional and respectful.`,
 };
 
 const systemInstruction = `You are ProPhrase, a professional work-message rewriting assistant.

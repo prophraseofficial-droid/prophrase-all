@@ -4,6 +4,9 @@ import { requireUser } from "@/lib/security/auth";
 import { apiError } from "@/lib/security/validation";
 import { rewriteTemplates } from "@/lib/templates";
 import { getProfileAndUsageSummary } from "@/lib/usage/usage";
+import { getBillingFlags } from "@/lib/billing/flags";
+import { getCreditBalance } from "@/lib/billing/account";
+import { historyCutoffForUser } from "@/lib/billing/entitlements";
 
 export async function GET(request: Request) {
   const { user, response } = await requireUser(request);
@@ -11,15 +14,21 @@ export async function GET(request: Request) {
 
   try {
     const supabase = createSupabaseAdminClient();
-    const [planData, threadsResult] = await Promise.all([
+    const billingFlags = getBillingFlags();
+    let threadsQuery = supabase
+      .from("threads")
+      .select("id, title, tone, is_favorite, updated_at")
+      .eq("user_id", user.id)
+      .eq("is_archived", false);
+    if (billingFlags.planFeatureGatingEnabled) {
+      threadsQuery = threadsQuery.gte("updated_at", await historyCutoffForUser(user.id));
+    }
+    const [planData, threadsResult, creditBalance] = await Promise.all([
       getProfileAndUsageSummary(user.id),
-      supabase
-        .from("threads")
-        .select("id, title, tone, is_favorite, updated_at")
-        .eq("user_id", user.id)
-        .eq("is_archived", false)
+      threadsQuery
         .order("updated_at", { ascending: false })
         .limit(50),
+      billingFlags.creditBillingEnabled ? getCreditBalance(user.id) : Promise.resolve(null),
     ]);
 
     if (threadsResult.error) throw threadsResult.error;
@@ -39,6 +48,12 @@ export async function GET(request: Request) {
         currentPeriodEnd: planData.profile.current_period_end,
       },
       usage: planData.usage,
+      creditBilling: {
+        enabled: billingFlags.creditBillingEnabled,
+        shadowMode: billingFlags.creditBillingShadowMode,
+        planFeatureGatingEnabled: billingFlags.planFeatureGatingEnabled,
+        balance: creditBalance,
+      },
       threads: threadsResult.data ?? [],
       templates: rewriteTemplates,
       user: {

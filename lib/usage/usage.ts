@@ -18,7 +18,7 @@ export function getUsageDate() {
 
 export function isProUser(profile: Pick<Profile, "plan" | "subscription_status">) {
   return (
-    (profile.plan === "pro_monthly" || profile.plan === "pro_yearly") &&
+    (profile.plan === "plus" || profile.plan === "pro" || profile.plan === "pro_monthly" || profile.plan === "pro_yearly") &&
     profile.subscription_status === "active"
   );
 }

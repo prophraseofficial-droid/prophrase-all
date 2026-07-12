@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import type { BillingPlan } from "@/lib/billing/plans";
+import type { BillingInterval, PlanId } from "@/lib/billing/types";
+import { trackBillingEvent } from "@/lib/billing/analytics";
 
 type RazorpayCheckoutOptions = {
   key: string;
@@ -14,33 +15,27 @@ type RazorpayCheckoutOptions = {
     razorpay_subscription_id: string;
     razorpay_signature: string;
   }) => void;
-  prefill?: {
-    name?: string;
-    email?: string;
-  };
-  theme?: {
-    color?: string;
-  };
+  prefill?: { name?: string; email?: string };
+  theme?: { color?: string };
 };
 
-type RazorpayConstructor = new (options: RazorpayCheckoutOptions) => {
-  open: () => void;
-};
+type RazorpayConstructor = new (options: RazorpayCheckoutOptions) => { open: () => void };
 
 declare global {
-  interface Window {
-    Razorpay?: RazorpayConstructor;
-  }
+  interface Window { Razorpay?: RazorpayConstructor }
 }
 
 function loadRazorpayScript() {
   return new Promise<boolean>((resolve) => {
-    if (window.Razorpay) {
-      resolve(true);
+    if (window.Razorpay) return resolve(true);
+    const existing = document.querySelector<HTMLScriptElement>("script[data-prophrase-razorpay]");
+    if (existing) {
+      existing.addEventListener("load", () => resolve(true), { once: true });
+      existing.addEventListener("error", () => resolve(false), { once: true });
       return;
     }
-
     const script = document.createElement("script");
+    script.dataset.prophraseRazorpay = "true";
     script.src = "https://checkout.razorpay.com/v1/checkout.js";
     script.onload = () => resolve(true);
     script.onerror = () => resolve(false);
@@ -50,63 +45,83 @@ function loadRazorpayScript() {
 
 export function PricingActionButton({
   plan,
+  interval = "none",
   children,
   className,
+  current = false,
+  currentPlan = "free",
 }: {
-  plan?: BillingPlan;
+  plan?: Exclude<PlanId, "free">;
+  interval?: BillingInterval;
   children: React.ReactNode;
   className: string;
+  current?: boolean;
+  currentPlan?: PlanId;
 }) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
-  if (!plan) {
-    return (
-      <Link className={className} href="/workspace">
-        {children}
-      </Link>
-    );
+  if (current) {
+    return <button className={className} disabled type="button">Current plan</button>;
+  }
+  if (!plan || interval === "none") {
+    return <Link className={className} href="/workspace">{children}</Link>;
   }
 
   async function startCheckout() {
-    if (!plan) return;
+    if (!plan || interval === "none") return;
+    trackBillingEvent("pricing_plan_selected", {
+      currentPlan,
+      selectedPlan: plan,
+      billingInterval: interval,
+    });
+    trackBillingEvent("checkout_started", { selectedPlan: plan, billingInterval: interval });
     setIsLoading(true);
     setError("");
-
     try {
-      const response = await fetch("/api/billing/create-subscription", {
+      if (currentPlan !== "free" && currentPlan !== plan) {
+        const changeResponse = await fetch("/api/billing/change-plan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ plan, interval, idempotencyKey: crypto.randomUUID() }),
+        });
+        const changeData = await changeResponse.json() as { message?: string };
+        if (!changeResponse.ok) throw new Error(changeData.message || "Unable to change plan.");
+        window.location.href = "/account/billing?plan_change=processing";
+        return;
+      }
+      const response = await fetch("/api/billing/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan }),
+        body: JSON.stringify({
+          plan,
+          interval,
+          idempotencyKey: crypto.randomUUID(),
+          returnTo: "/account/billing",
+        }),
       });
-      const data = (await response.json()) as {
+      const data = await response.json() as {
         subscriptionId?: string;
         razorpayKeyId?: string;
-        plan?: BillingPlan;
         user?: { name?: string; email?: string };
         message?: string;
         error?: string;
       };
-
       if (response.status === 401) {
         window.location.href = "/login?next=/pricing";
         return;
       }
-
       if (!response.ok || !data.subscriptionId || !data.razorpayKeyId) {
         throw new Error(data.message || data.error || "Unable to start payment.");
       }
-
-      const loaded = await loadRazorpayScript();
-      if (!loaded || !window.Razorpay) {
+      if (!(await loadRazorpayScript()) || !window.Razorpay) {
         throw new Error("Unable to load Razorpay Checkout.");
       }
-
-      const checkout = new window.Razorpay({
+      new window.Razorpay({
         key: data.razorpayKeyId,
         subscription_id: data.subscriptionId,
         name: "ProPhrase",
-        description: plan === "pro_yearly" ? "Pro Yearly" : "Pro Monthly",
+        description: `${plan === "plus" ? "Plus" : "Pro"} ${interval === "annual" ? "Annual" : "Monthly"}`,
         prefill: data.user,
         theme: { color: "#111111" },
         handler: async (paymentResponse) => {
@@ -115,22 +130,23 @@ export function PricingActionButton({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(paymentResponse),
           });
-
-          if (verifyResponse.ok) {
-            window.location.href = "/workspace";
-          } else {
-            setError("Payment could not be verified. Please contact support.");
-          }
+          trackBillingEvent(verifyResponse.ok ? "checkout_completed" : "checkout_failed", {
+            selectedPlan: plan,
+            billingInterval: interval,
+            paymentStatusCategory: verifyResponse.ok ? "verified" : "processing",
+          });
+          window.location.href = verifyResponse.ok
+            ? "/account/billing?checkout=complete"
+            : "/account/billing?checkout=processing";
         },
-      });
-
-      checkout.open();
+      }).open();
     } catch (caughtError) {
-      setError(
-        caughtError instanceof Error
-          ? caughtError.message
-          : "Unable to start payment.",
-      );
+      trackBillingEvent("checkout_failed", {
+        selectedPlan: plan,
+        billingInterval: interval,
+        errorCategory: "checkout_request_failed",
+      });
+      setError(caughtError instanceof Error ? caughtError.message : "Unable to start payment.");
     } finally {
       setIsLoading(false);
     }
@@ -138,15 +154,10 @@ export function PricingActionButton({
 
   return (
     <div>
-      <button
-        className={className}
-        disabled={isLoading}
-        onClick={() => void startCheckout()}
-        type="button"
-      >
+      <button className={className} disabled={isLoading} onClick={() => void startCheckout()} type="button">
         {isLoading ? "Opening checkout..." : children}
       </button>
-      {error ? <p className="mt-2 text-center text-sm text-red-700">{error}</p> : null}
+      {error ? <p className="mt-2 text-center text-sm text-red-700" role="alert">{error}</p> : null}
     </div>
   );
 }

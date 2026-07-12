@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { verifyRazorpaySubscriptionPaymentSignature } from "@/lib/billing/razorpay";
+import { getRazorpayClient } from "@/lib/billing/razorpay";
+import { planFromProviderPriceId } from "@/lib/billing/plans";
+import { applyVerifiedSubscriptionEvent } from "@/lib/billing/subscriptions";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { requireUser } from "@/lib/security/auth";
+import { requireTrustedMutation, requireUser } from "@/lib/security/auth";
 import { checkRateLimit } from "@/lib/security/rateLimit";
 import {
   apiError,
@@ -11,6 +14,8 @@ import {
 } from "@/lib/security/validation";
 
 export async function POST(request: Request) {
+  const csrfResponse = requireTrustedMutation(request);
+  if (csrfResponse) return csrfResponse;
   const { user, response } = await requireUser(request);
   if (!user) return response;
 
@@ -47,7 +52,7 @@ export async function POST(request: Request) {
     const supabase = createSupabaseAdminClient();
     const { data: subscription, error } = await supabase
       .from("subscriptions")
-      .select("*")
+      .select("*, plan_id, billing_interval, provider_price_id")
       .eq("user_id", user.id)
       .eq("razorpay_subscription_id", parsed.data.razorpay_subscription_id)
       .order("created_at", { ascending: false })
@@ -59,26 +64,39 @@ export async function POST(request: Request) {
       return apiError("SUBSCRIPTION_REQUIRED", "Subscription not found.", 404);
     }
 
-    await Promise.all([
-      supabase
-        .from("subscriptions")
-        .update({
-          status: "active",
-          razorpay_payment_id: parsed.data.razorpay_payment_id,
-        })
-        .eq("id", subscription.id),
-      supabase
-        .from("profiles")
-        .update({
-          plan: subscription.plan,
-          subscription_status: "active",
-          razorpay_customer_id: subscription.razorpay_customer_id,
-          razorpay_subscription_id: parsed.data.razorpay_subscription_id,
-        })
-        .eq("id", user.id),
-    ]);
-
-    return NextResponse.json({ ok: true, plan: subscription.plan });
+    const providerSubscription = await getRazorpayClient().subscriptions.fetch(
+      parsed.data.razorpay_subscription_id,
+    );
+    const mapped = planFromProviderPriceId(
+      providerSubscription.plan_id ?? subscription.provider_price_id,
+    );
+    const plan = mapped?.plan ?? subscription.plan_id;
+    const interval = mapped?.interval ?? subscription.billing_interval;
+    if ((plan !== "plus" && plan !== "pro") ||
+      (interval !== "monthly" && interval !== "annual")) {
+      return apiError("INVALID_PLAN", "The purchased plan could not be verified.", 400);
+    }
+    if (!["active", "authenticated"].includes(providerSubscription.status ?? "")) {
+      return NextResponse.json({ ok: true, processing: true, plan, interval }, { status: 202 });
+    }
+    await applyVerifiedSubscriptionEvent({
+      providerEventId: `client-verified:${parsed.data.razorpay_payment_id}`,
+      eventType: "subscription.activated",
+      eventCreatedAt: new Date(),
+      providerSubscriptionId: parsed.data.razorpay_subscription_id,
+      providerCustomerId: providerSubscription.customer_id ?? subscription.razorpay_customer_id,
+      providerPaymentId: parsed.data.razorpay_payment_id,
+      providerOrderId: null,
+      providerPriceId: providerSubscription.plan_id ?? null,
+      plan,
+      interval,
+      userId: user.id,
+      currentPeriodStart: providerSubscription.current_start
+        ? new Date(providerSubscription.current_start * 1000) : null,
+      currentPeriodEnd: providerSubscription.current_end
+        ? new Date(providerSubscription.current_end * 1000) : null,
+    });
+    return NextResponse.json({ ok: true, plan, interval });
   } catch {
     return apiError(
       "PAYMENT_VERIFICATION_FAILED",

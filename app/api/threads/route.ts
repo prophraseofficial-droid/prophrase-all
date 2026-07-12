@@ -8,6 +8,8 @@ import {
   validationError,
 } from "@/lib/security/validation";
 import { canCreateThread, incrementThreadUsage } from "@/lib/usage/usage";
+import { getBillingFlags } from "@/lib/billing/flags";
+import { historyCutoffForUser } from "@/lib/billing/entitlements";
 
 export async function GET(request: Request) {
   const { user, response } = await requireUser(request);
@@ -15,11 +17,15 @@ export async function GET(request: Request) {
 
   try {
     const supabase = createSupabaseAdminClient();
-    const { data, error } = await supabase
+    let query = supabase
       .from("threads")
       .select("*")
       .eq("user_id", user.id)
-      .eq("is_archived", false)
+      .eq("is_archived", false);
+    if (getBillingFlags().planFeatureGatingEnabled) {
+      query = query.gte("updated_at", await historyCutoffForUser(user.id));
+    }
+    const { data, error } = await query
       .order("updated_at", { ascending: false })
       .limit(50);
 
@@ -47,11 +53,11 @@ export async function POST(request: Request) {
         "FREE_THREAD_LIMIT_REACHED",
         limit.summary.isPro
           ? "Thread fair-use limit reached. Please try again tomorrow."
-          : "You have used your free threads for today. Upgrade to Pro for unlimited threads.",
+          : "You have used your free threads for today. Compare Plus and Pro credit plans.",
         limit.summary.isPro ? 429 : 402,
         {
           usage: limit.summary,
-          upgrade: { monthly: "₹99/month", yearly: "₹699/year" },
+          upgrade: { monthly: "₹99/month", yearly: "₹899/year" },
         },
       );
     }

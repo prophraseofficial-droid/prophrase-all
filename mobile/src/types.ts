@@ -1,12 +1,20 @@
 export type Tone =
   | "Professional"
+  | "Polite"
+  | "Shorter"
   | "Short & Crisp"
   | "Human"
   | "Email"
-  | "Jira Comment";
+  | "Slack"
+  | "Teams"
+  | "Jira Comment"
+  | "WhatsApp"
+  | "Client-safe"
+  | "Manager-friendly"
+  | "Firmer";
 
 export type UsageSummary = {
-  plan: "free" | "pro_monthly" | "pro_yearly";
+  plan: "free" | "plus" | "pro" | "pro_monthly" | "pro_yearly";
   isPro: boolean;
   rewriteCount: number;
   rewriteLimit: number;
@@ -14,6 +22,12 @@ export type UsageSummary = {
   threadLimit: number;
   rewriteRemaining: number;
   threadRemaining: number;
+  creditBalance?: {
+    plan: "free" | "plus" | "pro";
+    available: number;
+    allowance: number;
+    nextRefreshAt: string | null;
+  } | null;
 };
 
 export type ThreadSummary = {

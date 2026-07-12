@@ -1,9 +1,17 @@
 export const tones = [
   "Professional",
+  "Polite",
+  "Shorter",
   "Short & Crisp",
   "Human",
   "Email",
+  "Slack",
+  "Teams",
   "Jira Comment",
+  "WhatsApp",
+  "Client-safe",
+  "Manager-friendly",
+  "Firmer",
 ] as const;
 
 export const TONES = tones;

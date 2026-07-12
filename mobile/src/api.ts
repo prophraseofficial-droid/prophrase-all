@@ -25,17 +25,20 @@ async function requestJson<T>({
   token,
   method = "GET",
   body,
+  idempotencyKey,
 }: {
   path: string;
   token: string;
   method?: "GET" | "POST" | "PATCH" | "DELETE";
   body?: Record<string, unknown>;
+  idempotencyKey?: string;
 }) {
   const response = await fetch(`${apiBaseUrl}${path}`, {
     method,
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
+      ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -51,13 +54,19 @@ async function requestJson<T>({
 }
 
 export async function loadWorkspace(token: string) {
-  return requestJson<{
+  const data = await requestJson<{
     profile: {
-      plan: "free" | "pro_monthly" | "pro_yearly";
+      plan: "free" | "plus" | "pro" | "pro_monthly" | "pro_yearly";
       subscriptionStatus: string;
       currentPeriodEnd: string | null;
     };
     usage: UsageSummary;
+    creditBilling?: {
+      enabled: boolean;
+      shadowMode: boolean;
+      planFeatureGatingEnabled: boolean;
+      balance: UsageSummary["creditBalance"];
+    };
     threads: ThreadSummary[];
     templates: RewriteTemplate[];
     user: {
@@ -65,6 +74,14 @@ export async function loadWorkspace(token: string) {
       name: string;
     };
   }>({ path: "/api/workspace/bootstrap", token });
+  return {
+    ...data,
+    usage: {
+      ...data.usage,
+      creditBalance: data.creditBilling?.enabled ? data.creditBilling.balance : null,
+    },
+    planFeatureGatingEnabled: Boolean(data.creditBilling?.planFeatureGatingEnabled),
+  };
 }
 
 export async function rewriteMessage({
@@ -87,10 +104,12 @@ export async function rewriteMessage({
     userMessage: ThreadMessage;
     assistantMessage: ThreadMessage;
     usage: UsageSummary;
+    credits?: { charged: number; remaining: number; nextRefreshAt: string | null };
   }>({
     path: "/api/rewrite",
     token,
     method: "POST",
+    idempotencyKey: `mobile-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
     body: {
       text,
       tone,
@@ -128,25 +147,6 @@ export async function createUniversalCopy({
       text,
       expiresInSeconds: 600,
     },
-  });
-}
-
-export async function startSubscription(token: string, plan: "pro_monthly" | "pro_yearly") {
-  return requestJson<{
-    subscriptionId: string;
-    razorpayKeyId: string;
-    amount: number;
-    currency: string;
-    plan: "pro_monthly" | "pro_yearly";
-    user: {
-      name: string;
-      email: string;
-    };
-  }>({
-    path: "/api/billing/create-subscription",
-    token,
-    method: "POST",
-    body: { plan },
   });
 }
 

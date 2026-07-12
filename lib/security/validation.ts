@@ -14,7 +14,7 @@ export const toneSchema = z.enum(tones);
 export const uuidSchema = z.string().uuid();
 
 export const rewriteBodySchema = z.object({
-  text: z.string().trim().min(3).max(2000),
+  text: z.string().trim().min(3).max(5000),
   tone: toneSchema,
   instruction: z.string().trim().min(3).max(240).optional(),
   threadId: uuidSchema.optional(),
@@ -69,12 +69,38 @@ export const updateThreadSchema = z
   });
 
 export const messageBodySchema = z.object({
-  text: z.string().trim().min(3).max(2000),
+  text: z.string().trim().min(3).max(5000),
   tone: toneSchema,
 });
 
 export const billingPlanSchema = z.object({
   plan: z.enum(["pro_monthly", "pro_yearly"]),
+});
+
+export const billingCheckoutSchema = z.object({
+  plan: z.enum(["plus", "pro"]),
+  interval: z.enum(["monthly", "annual"]),
+  idempotencyKey: z.string().trim().min(8).max(120),
+  returnTo: z.string().trim().regex(/^\/[A-Za-z0-9/_?=&.-]*$/).default("/account/billing"),
+});
+
+export const billingChangePlanSchema = z.object({
+  plan: z.enum(["plus", "pro"]),
+  interval: z.enum(["monthly", "annual"]),
+  idempotencyKey: z.string().trim().min(8).max(120),
+});
+
+export const creditEstimateSchema = z.object({
+  operation: z.enum([
+    "rephrase",
+    "outcome_assistant",
+    "regenerate_all",
+    "extra_variant",
+    "tone_explanation",
+    "edited_message_check",
+    "voice_transcription",
+  ]),
+  text: z.string().max(5000),
 });
 
 export const deviceIdSchema = z
@@ -126,6 +152,22 @@ export type ApiErrorCode =
   | "PRO_FAIR_USE_LIMIT_REACHED"
   | "THREAD_NOT_FOUND"
   | "PAYMENT_VERIFICATION_FAILED"
+  | "CREDIT_BILLING_DISABLED"
+  | "INVALID_PLAN"
+  | "INVALID_BILLING_INTERVAL"
+  | "PLAN_UPGRADE_REQUIRED"
+  | "INPUT_LIMIT_EXCEEDED"
+  | "INSUFFICIENT_CREDITS"
+  | "CREDIT_RESERVATION_FAILED"
+  | "CREDIT_REQUEST_IN_PROGRESS"
+  | "PAYMENT_PROCESSING"
+  | "SUBSCRIPTION_NOT_ACTIVE"
+  | "SUBSCRIPTION_PAST_DUE"
+  | "CHECKOUT_FAILED"
+  | "WEBHOOK_VERIFICATION_FAILED"
+  | "GENERATION_FAILED"
+  | "IDEMPOTENCY_KEY_REQUIRED"
+  | "IDEMPOTENCY_KEY_REUSED"
   | "SUBSCRIPTION_REQUIRED"
   | "AI_PROVIDER_ERROR"
   | "AI_PROVIDER_QUOTA_EXHAUSTED"
@@ -144,7 +186,7 @@ export function apiError(
   status: number,
   extra?: Record<string, unknown>,
 ) {
-  return NextResponse.json({ error, message, ...extra }, { status });
+  return NextResponse.json({ error, code: error, message, ...extra }, { status });
 }
 
 export function validationError(message = "Invalid request.") {

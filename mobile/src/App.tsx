@@ -27,7 +27,6 @@ import {
   loadWorkspace,
   pricingUrl,
   rewriteMessage,
-  startSubscription,
 } from "./api";
 import { appConfig } from "./config";
 import { getDeviceLabel, getOrCreateDeviceId } from "./device";
@@ -76,6 +75,8 @@ function initialFromName(name: string) {
 }
 
 function formatPlan(plan?: UsageSummary["plan"]) {
+  if (plan === "plus") return "Plus";
+  if (plan === "pro") return "Pro";
   if (plan === "pro_yearly") return "Pro Yearly";
   if (plan === "pro_monthly") return "Pro Monthly";
   return "Free";
@@ -412,36 +413,40 @@ function UpgradeFlow({
 }: {
   visible: boolean;
   busy: boolean;
-  onSelect: (plan: "pro_monthly" | "pro_yearly") => void;
+  onSelect: (plan: "plus" | "pro", interval: "monthly" | "annual") => void;
   onClose: () => void;
 }) {
+  const [interval, setInterval] = useState<"monthly" | "annual">("monthly");
   return (
     <Modal animationType="slide" transparent visible={visible}>
       <Pressable style={styles.sheetBackdrop} onPress={onClose} />
       <View style={styles.sheet}>
         <View style={styles.sheetHandle} />
-        <Text style={styles.sheetTitle}>Upgrade to Pro</Text>
+        <Text style={styles.sheetTitle}>Choose a plan</Text>
         <Text style={styles.sheetCopy}>
-          Unlimited rewrites, voice input, saved templates, and Universal Copy
-          across devices.
+          Longer messages use more credits. Unused credits do not roll over.
         </Text>
+        <View style={styles.toneRow}>
+          <Pressable onPress={() => setInterval("monthly")} style={[styles.chip, interval === "monthly" && styles.chipActive]}><Text style={[styles.chipText, interval === "monthly" && styles.chipTextActive]}>Monthly</Text></Pressable>
+          <Pressable onPress={() => setInterval("annual")} style={[styles.chip, interval === "annual" && styles.chipActive]}><Text style={[styles.chipText, interval === "annual" && styles.chipTextActive]}>Annual</Text></Pressable>
+        </View>
         <Pressable
           disabled={busy}
-          onPress={() => onSelect("pro_monthly")}
+          onPress={() => onSelect("plus", interval)}
           style={styles.planCard}
         >
-          <Text style={styles.planName}>Monthly</Text>
-          <Text style={styles.planPrice}>₹99/month</Text>
-          <Text style={styles.planMeta}>Power for focused months.</Text>
+          <Text style={styles.planName}>Plus</Text>
+          <Text style={styles.planPrice}>{interval === "monthly" ? "₹99/month" : "₹899/year"}</Text>
+          <Text style={styles.planMeta}>300 credits refreshed monthly.</Text>
         </Pressable>
         <Pressable
           disabled={busy}
-          onPress={() => onSelect("pro_yearly")}
+          onPress={() => onSelect("pro", interval)}
           style={[styles.planCard, styles.planCardFeatured]}
         >
-          <Text style={styles.planName}>Yearly</Text>
-          <Text style={styles.planPrice}>₹699/year</Text>
-          <Text style={styles.planMeta}>Best value. Billed annually.</Text>
+          <Text style={styles.planName}>Pro</Text>
+          <Text style={styles.planPrice}>{interval === "monthly" ? "₹249/month" : "₹1,999/year"}</Text>
+          <Text style={styles.planMeta}>1,500 credits refreshed monthly.</Text>
         </Pressable>
         {busy ? <ActivityIndicator color={colors.primary} /> : null}
       </View>
@@ -463,6 +468,7 @@ function HomeWrite({
   onOpenUpgrade,
   templateDraft,
   onTemplateDraftUsed,
+  planFeatureGatingEnabled,
 }: {
   session: AppSession;
   selectedTone: Tone;
@@ -477,6 +483,7 @@ function HomeWrite({
   onOpenUpgrade: (message?: string) => void;
   templateDraft: RewriteTemplate | null;
   onTemplateDraftUsed: () => void;
+  planFeatureGatingEnabled: boolean;
 }) {
   const [text, setText] = useState("");
   const [sourceText, setSourceText] = useState("");
@@ -499,7 +506,19 @@ function HomeWrite({
   async function handleRewrite() {
     const trimmed = text.trim();
     if (!trimmed || loading) return;
-    if (usage && !usage.isPro && usage.rewriteRemaining <= 0) {
+    if (
+      planFeatureGatingEnabled &&
+      !["plus", "pro", "pro_monthly", "pro_yearly"].includes(usage?.creditBalance?.plan ?? usage?.plan ?? "free") &&
+      !["Professional", "Polite", "Shorter"].includes(selectedTone)
+    ) {
+      onOpenUpgrade(`${selectedTone} is available on Plus and Pro.`);
+      return;
+    }
+    if (usage?.creditBalance && usage.creditBalance.available <= 0) {
+      onOpenUpgrade("You have no credits remaining for this credit period.");
+      return;
+    }
+    if (usage && !usage.creditBalance && !usage.isPro && usage.rewriteRemaining <= 0) {
       onOpenUpgrade("You have used your free rewrites for today.");
       return;
     }
@@ -516,7 +535,12 @@ function HomeWrite({
       });
       setThreadId(data.threadId);
       setResult(data.result);
-      setUsage(data.usage);
+      setUsage({
+        ...data.usage,
+        creditBalance: data.credits && usage?.creditBalance
+          ? { ...usage.creditBalance, available: data.credits.remaining, nextRefreshAt: data.credits.nextRefreshAt }
+          : usage?.creditBalance ?? null,
+      });
       setThreads([data.thread, ...threads.filter((item) => item.id !== data.thread.id)]);
       setText("");
       setStatus("");
@@ -557,7 +581,7 @@ function HomeWrite({
   return (
     <Shell
       title="Write"
-      subtitle={usage?.isPro ? "Pro workspace" : `${usage?.rewriteRemaining ?? 0} credits left`}
+      subtitle={usage?.creditBalance ? `${usage.creditBalance.available} credits left` : usage?.isPro ? "Paid workspace" : `${usage?.rewriteRemaining ?? 0} rewrites left`}
       right={
         <Pressable style={styles.avatar} onPress={() => setView("settings")}>
           <Text style={styles.avatarText}>{initialFromName(session.name)}</Text>
@@ -773,12 +797,12 @@ function AccountSettings({
         </View>
         <View style={styles.settingsCard}>
           <Text style={styles.settingLabel}>Plan</Text>
-          <Text style={styles.settingValue}>{formatPlan(usage?.plan)}</Text>
+          <Text style={styles.settingValue}>{usage?.creditBalance ? formatPlan(usage.creditBalance.plan) : formatPlan(usage?.plan)}</Text>
           <View style={styles.divider} />
-          <Text style={styles.settingLabel}>Daily rewrites</Text>
+          <Text style={styles.settingLabel}>{usage?.creditBalance ? "Credits" : "Daily rewrites"}</Text>
           <Text style={styles.settingValue}>
-            {usage?.isPro
-              ? "Unlimited fair use"
+            {usage?.creditBalance
+              ? `${usage.creditBalance.available} of ${usage.creditBalance.allowance} remaining`
               : `${usage?.rewriteRemaining ?? 0} remaining`}
           </Text>
           <View style={styles.divider} />
@@ -835,6 +859,7 @@ function MainApp({
   deviceId,
   deviceLabel,
   onSignOut,
+  planFeatureGatingEnabled,
 }: {
   session: AppSession;
   selectedTone: Tone;
@@ -845,6 +870,7 @@ function MainApp({
   deviceId: string;
   deviceLabel: string;
   onSignOut: () => void;
+  planFeatureGatingEnabled: boolean;
 }) {
   const [view, setView] = useState<ViewName>("home");
   const [threads, setThreads] = useState(initialThreads);
@@ -860,17 +886,16 @@ function MainApp({
     setUpgradeOpen(true);
   }
 
-  async function handlePlan(plan: "pro_monthly" | "pro_yearly") {
+  async function handlePlan(plan: "plus" | "pro", interval: "monthly" | "annual") {
     setUpgradeBusy(true);
     try {
-      await startSubscription(session.accessToken, plan);
-      await Linking.openURL(pricingUrl());
+      await Linking.openURL(`${pricingUrl()}?plan=${plan}&interval=${interval}`);
     } catch {
       Alert.alert(
         "Checkout needs attention",
         "We opened pricing so you can complete payment securely.",
       );
-      await Linking.openURL(pricingUrl());
+      await Linking.openURL(`${pricingUrl()}?plan=${plan}&interval=${interval}`);
     } finally {
       setUpgradeBusy(false);
     }
@@ -899,6 +924,7 @@ function MainApp({
           onOpenUpgrade={openUpgrade}
           templateDraft={templateDraft}
           onTemplateDraftUsed={() => setTemplateDraft(null)}
+          planFeatureGatingEnabled={planFeatureGatingEnabled}
         />
       ) : null}
       {view === "history" ? (
@@ -944,6 +970,7 @@ export default function App() {
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [templates, setTemplates] = useState<RewriteTemplate[]>([]);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
+  const [planFeatureGatingEnabled, setPlanFeatureGatingEnabled] = useState(false);
   const [deviceId, setDeviceId] = useState("");
   const [deviceLabel, setDeviceLabel] = useState("Mobile device");
   const googleClientId =
@@ -1076,6 +1103,7 @@ export default function App() {
     try {
       const workspace = await loadWorkspace(nextSession.access_token);
       setUsage(workspace.usage);
+      setPlanFeatureGatingEnabled(workspace.planFeatureGatingEnabled);
       setThreads(workspace.threads ?? []);
       setTemplates(workspace.templates ?? []);
       setSession({
@@ -1221,6 +1249,7 @@ export default function App() {
         deviceId={deviceId}
         deviceLabel={deviceLabel}
         onSignOut={signOut}
+        planFeatureGatingEnabled={planFeatureGatingEnabled}
       />
     </SafeAreaProvider>
   );
@@ -1614,6 +1643,31 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 15,
     lineHeight: 23,
+  },
+  toneRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  chip: {
+    flex: 1,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 16,
+    backgroundColor: colors.surfaceCard,
+    paddingVertical: 11,
+  },
+  chipActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary,
+  },
+  chipText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  chipTextActive: {
+    color: colors.surfaceCard,
   },
   sheetRow: {
     borderWidth: 1,

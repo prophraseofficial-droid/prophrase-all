@@ -1,4 +1,8 @@
-import { AiProviderError, generateOutcomeAssistantWithGemini } from "@/lib/ai/gemini";
+import {
+  AiProviderError,
+  generateOutcomeAssistantWithGemini,
+  rewriteWithGemini,
+} from "@/lib/ai/gemini";
 import { compareCommitments } from "@/lib/outcome-assistant/commitments";
 import {
   findIntroducedNumbers,
@@ -12,6 +16,7 @@ import {
 import {
   buildRepairPrompt,
   parseOutcomeAssistantJson,
+  parseOutcomeAssistantJsonLenient,
 } from "@/lib/outcome-assistant/schema";
 import type {
   MessageRisk,
@@ -202,6 +207,97 @@ function postProcessResponse({
   };
 }
 
+async function generateReliableFallback(request: OutcomeAssistantRequest) {
+  const metadata = [
+    `Recipient: ${recipientLabels[request.recipient]}`,
+    `Outcome: ${intentLabels[request.intent]}`,
+    request.relationshipLevel
+      ? `Relationship: ${relationshipLabels[request.relationshipLevel]}`
+      : null,
+    request.urgency ? `Urgency: ${urgencyLabels[request.urgency]}` : null,
+    request.channel ? `Channel: ${channelLabels[request.channel]}` : null,
+    request.desiredResponse
+      ? `Desired response: ${request.desiredResponse}`
+      : null,
+    request.lockedFacts.length
+      ? `Preserve these exact details: ${request.lockedFacts.join("; ")}`
+      : null,
+  ].filter(Boolean).join("\n");
+  const versions = [
+    {
+      id: "safe" as const,
+      label: "Safe",
+      explanation: "Careful and low-risk while preserving your intention.",
+      instruction: "Write a careful, respectful, low-risk version. Keep the request clear and do not weaken the intention.",
+    },
+    {
+      id: "balanced" as const,
+      label: "Balanced",
+      explanation: "Natural, confident and professional.",
+      instruction: "Write a natural, confident, concise professional version with a clear next action.",
+    },
+    {
+      id: "firm" as const,
+      label: "Firm",
+      explanation: "Direct and assertive without becoming rude.",
+      instruction: "Write a direct, assertive version that remains respectful and does not add threats, facts, deadlines or promises.",
+    },
+  ];
+  const generated = await Promise.allSettled(
+    versions.map((version) => rewriteWithGemini({
+      text: request.originalText,
+      tone: "Professional",
+      instruction: `${version.instruction}\n${metadata}`,
+    })),
+  );
+  const firstSuccess = generated.find(
+    (result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof rewriteWithGemini>>> =>
+      result.status === "fulfilled",
+  );
+  if (!firstSuccess) {
+    const firstFailure = generated.find(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    throw firstFailure?.reason ?? new Error("OUTCOME_FALLBACK_FAILED");
+  }
+
+  return {
+    response: postProcessResponse({
+      request,
+      response: {
+        detectedLanguage: request.languageMode === "indian_workplace"
+          ? "Indian workplace English"
+          : "English",
+        understoodIntent: `Prepare a message for ${recipientLabels[request.recipient]} to ${intentLabels[request.intent].toLowerCase()}.`,
+        variants: versions.map((version, index) => {
+          const result = generated[index];
+          const message = result?.status === "fulfilled"
+            ? result.value.text
+            : firstSuccess.value.text;
+          return {
+            id: version.id,
+            label: version.label,
+            explanation: version.explanation,
+            message,
+            readerInterpretation: "This version communicates the requested outcome professionally.",
+            risks: [],
+            factVerification: [],
+            commitmentWarnings: [],
+          };
+        }),
+        globalWarnings: generated.some((result) => result.status === "rejected")
+          ? ["One version was recovered from the available generation result."]
+          : [],
+        missingInformation: [],
+      },
+    }),
+    model: firstSuccess.value.model,
+    promptVersion: outcomeAssistantPromptVersion,
+    repaired: true,
+    fallback: true,
+  };
+}
+
 export async function generateOutcomeAssistantResponse(
   request: OutcomeAssistantRequest,
 ) {
@@ -222,6 +318,7 @@ export async function generateOutcomeAssistantResponse(
         model: firstResponse.model,
         promptVersion: outcomeAssistantPromptVersion,
         repaired: false,
+        fallback: false,
       };
     } catch (firstError) {
       const repair = await generateOutcomeAssistantWithGemini({
@@ -235,25 +332,48 @@ ${buildRepairPrompt({
         promptVersion: outcomeAssistantPromptVersion,
       });
 
-      return {
-        response: postProcessResponse({
-          request,
-          response: parseOutcomeAssistantJson(repair.text),
-        }),
-        model: repair.model,
-        promptVersion: outcomeAssistantPromptVersion,
-        repaired: true,
-      };
+      try {
+        return {
+          response: postProcessResponse({
+            request,
+            response: parseOutcomeAssistantJson(repair.text),
+          }),
+          model: repair.model,
+          promptVersion: outcomeAssistantPromptVersion,
+          repaired: true,
+          fallback: false,
+        };
+      } catch {
+        return {
+          response: postProcessResponse({
+            request,
+            response: parseOutcomeAssistantJsonLenient(repair.text),
+          }),
+          model: repair.model,
+          promptVersion: outcomeAssistantPromptVersion,
+          repaired: true,
+          fallback: false,
+        };
+      }
     }
   } catch (error) {
     if (error instanceof OutcomeAssistantError || error instanceof AiProviderError) {
       throw error;
     }
-    throw new OutcomeAssistantError({
-      code: "INVALID_AI_OUTPUT",
-      message: error instanceof Error ? error.message : "INVALID_OUTCOME_OUTPUT",
-      userMessage: "We could not safely verify the generated message. Please try again.",
-      status: 502,
-    });
+    try {
+      return await generateReliableFallback(request);
+    } catch (fallbackError) {
+      if (fallbackError instanceof AiProviderError) throw fallbackError;
+      throw new OutcomeAssistantError({
+        code: "INVALID_AI_OUTPUT",
+        message: fallbackError instanceof Error
+          ? fallbackError.message
+          : error instanceof Error
+            ? error.message
+            : "INVALID_OUTCOME_OUTPUT",
+        userMessage: "We could not prepare the message because the AI service did not return usable text. No credits were used.",
+        status: 502,
+      });
+    }
   }
 }
