@@ -289,6 +289,14 @@ function getOrCreateDeviceId() {
 }
 
 function getBrowserDeviceLabel() {
+  const desktop = (window as Window & {
+    prophraseDesktop?: { isDesktop: boolean; platform: string };
+  }).prophraseDesktop;
+  if (desktop?.isDesktop) {
+    if (desktop.platform === "darwin") return "ProPhrase for Mac";
+    if (desktop.platform === "win32") return "ProPhrase for Windows";
+    return "ProPhrase Desktop";
+  }
   const userAgent = navigator.userAgent;
   if (/iPhone|iPad|iPod/i.test(userAgent)) return "iOS browser";
   if (/Android/i.test(userAgent)) return "Android browser";
@@ -296,6 +304,13 @@ function getBrowserDeviceLabel() {
   if (/Win/i.test(navigator.platform)) return "Windows browser";
   if (/Linux/i.test(navigator.platform)) return "Linux browser";
   return "Web browser";
+}
+
+function getDevicePlatform() {
+  const desktop = (window as Window & {
+    prophraseDesktop?: { isDesktop: boolean };
+  }).prophraseDesktop;
+  return desktop?.isDesktop ? "desktop" : "web";
 }
 
 export function WorkspaceClient() {
@@ -373,13 +388,17 @@ export function WorkspaceClient() {
     universalItem.sourceDeviceId !== deviceId;
 
   async function refreshThreads() {
-    const response = await fetch("/api/threads");
-    if (!response.ok) return;
+    try {
+      const response = await fetch("/api/threads");
+      if (!response.ok) return;
 
-    const threadData = (await response.json()) as {
-      threads?: ThreadSummary[];
-    };
-    setThreads(threadData.threads ?? []);
+      const threadData = (await response.json()) as {
+        threads?: ThreadSummary[];
+      };
+      setThreads(threadData.threads ?? []);
+    } catch {
+      // Background refresh failures should not surface as runtime errors.
+    }
   }
 
   function upsertThreadSummary(thread: ThreadSummary) {
@@ -402,30 +421,38 @@ export function WorkspaceClient() {
   }
 
   async function registerCurrentDevice(nextDeviceId: string, nextDeviceLabel: string) {
-    await fetch("/api/universal-clipboard/devices", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        deviceId: nextDeviceId,
-        label: nextDeviceLabel,
-        platform: "web",
-        capabilities: ["universal-copy", "universal-paste"],
-      }),
-    });
+    try {
+      await fetch("/api/universal-clipboard/devices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          deviceId: nextDeviceId,
+          label: nextDeviceLabel,
+          platform: getDevicePlatform(),
+          capabilities: ["universal-copy", "universal-paste"],
+        }),
+      });
+    } catch {
+      // Device registration is optional and must not interrupt rewriting.
+    }
   }
 
   async function refreshUniversalClipboard(nextDeviceId = deviceId) {
     if (!nextDeviceId) return;
 
-    const response = await fetch(
-      `/api/universal-clipboard?deviceId=${encodeURIComponent(nextDeviceId)}`,
-    );
-    if (!response.ok) return;
+    try {
+      const response = await fetch(
+        `/api/universal-clipboard?deviceId=${encodeURIComponent(nextDeviceId)}`,
+      );
+      if (!response.ok) return;
 
-    const data = (await response.json().catch(() => null)) as
-      | { item?: UniversalClipboardMetadata | null }
-      | null;
-    setUniversalItem(data?.item ?? null);
+      const data = (await response.json().catch(() => null)) as
+        | { item?: UniversalClipboardMetadata | null }
+        | null;
+      setUniversalItem(data?.item ?? null);
+    } catch {
+      // Clipboard polling is best-effort.
+    }
   }
 
   async function createUniversalCopy(text: string) {
@@ -520,36 +547,36 @@ export function WorkspaceClient() {
   async function loadThreadConversation(nextThreadId: string) {
     setError("");
     setUpgradeMessage("");
-    const response = await fetch(`/api/threads/${nextThreadId}`);
-    const data = (await response.json().catch(() => null)) as
-      | {
-          thread?: ThreadSummary;
-          messages?: ThreadMessage[];
-          message?: string;
-        }
-      | null;
+    try {
+      const response = await fetch(`/api/threads/${nextThreadId}`);
+      const data = (await response.json().catch(() => null)) as
+        | {
+            thread?: ThreadSummary;
+            messages?: ThreadMessage[];
+            message?: string;
+          }
+        | null;
 
-    if (!response.ok || !data?.thread) {
-      setError(data?.message || "Unable to load this chat.");
-      return;
+      if (!response.ok || !data?.thread) {
+        setError(data?.message || "Unable to load this chat.");
+        return;
+      }
+
+      setActiveView("rewrite");
+      setThreadId(data.thread.id);
+      setSelectedTone(isTone(data.thread.tone) ? data.thread.tone : "Professional");
+      const messages = data.messages ?? [];
+      const lastUserMessage = [...messages].reverse().find((message) => message.role === "user");
+      const lastAssistantMessage = [...messages].reverse().find((message) => message.role === "assistant");
+      setThreadMessages(messages);
+      setInputText("");
+      setLastInput("");
+      setLastSourceText(lastUserMessage?.content ?? "");
+      setOutputText(lastAssistantMessage?.content ?? "");
+      setAttachmentName("");
+    } catch {
+      setError("Unable to load this chat. Please try again.");
     }
-
-    setActiveView("rewrite");
-    setThreadId(data.thread.id);
-    setSelectedTone(isTone(data.thread.tone) ? data.thread.tone : "Professional");
-    const messages = data.messages ?? [];
-    const lastUserMessage = [...messages]
-      .reverse()
-      .find((message) => message.role === "user");
-    const lastAssistantMessage = [...messages]
-      .reverse()
-      .find((message) => message.role === "assistant");
-    setThreadMessages(messages);
-    setInputText("");
-    setLastInput("");
-    setLastSourceText(lastUserMessage?.content ?? "");
-    setOutputText(lastAssistantMessage?.content ?? "");
-    setAttachmentName("");
   }
 
   useEffect(() => {
@@ -622,15 +649,19 @@ export function WorkspaceClient() {
     void registerCurrentDevice(nextDeviceId, nextDeviceLabel);
 
     async function refreshDeviceClipboard() {
-      const response = await fetch(
-        `/api/universal-clipboard?deviceId=${encodeURIComponent(nextDeviceId)}`,
-      );
-      if (!response.ok) return;
+      try {
+        const response = await fetch(
+          `/api/universal-clipboard?deviceId=${encodeURIComponent(nextDeviceId)}`,
+        );
+        if (!response.ok) return;
 
-      const data = (await response.json().catch(() => null)) as
-        | { item?: UniversalClipboardMetadata | null }
-        | null;
-      setUniversalItem(data?.item ?? null);
+        const data = (await response.json().catch(() => null)) as
+          | { item?: UniversalClipboardMetadata | null }
+          | null;
+        setUniversalItem(data?.item ?? null);
+      } catch {
+        // Clipboard polling is best-effort.
+      }
     }
 
     void refreshDeviceClipboard();
@@ -1055,17 +1086,25 @@ export function WorkspaceClient() {
       return;
     }
 
-    const text = await file.text();
-    setInputText((current) =>
-      current.trim() ? `${current.trim()}\n\n${text.trim()}` : text.trim(),
-    );
-    setError("");
+    try {
+      const text = await file.text();
+      setInputText((current) =>
+        current.trim() ? `${current.trim()}\n\n${text.trim()}` : text.trim(),
+      );
+      setError("");
+    } catch {
+      setError("The attached file could not be read.");
+    }
   }
 
   async function signOut() {
-    const supabase = createSupabaseBrowserClient();
-    await supabase.auth.signOut();
-    window.location.href = "/login";
+    try {
+      const supabase = createSupabaseBrowserClient();
+      await supabase.auth.signOut();
+      window.location.href = "/login";
+    } catch {
+      setError("Unable to sign out. Please try again.");
+    }
   }
 
   async function dismissExistingPreferenceNotice() {
@@ -1079,7 +1118,7 @@ export function WorkspaceClient() {
   }
 
   return (
-    <main className="flex h-[100dvh] flex-col overflow-hidden bg-[#faf9f6] text-[#1a1c1a] md:flex-row">
+    <main className="flex h-[100dvh] flex-col overflow-hidden bg-[#fbfbfb] text-[#191c1d] md:flex-row">
       {preferencesFeatureEnabled && preferencesLoaded && onboardingRequired ? (
         <QuickStylesOnboarding
           initialPreferences={preferences}
@@ -1090,41 +1129,35 @@ export function WorkspaceClient() {
           }}
         />
       ) : null}
-      <aside className="hidden w-72 shrink-0 flex-col border-r border-border-subtle bg-surface px-4 py-5 md:flex">
-        <Link className="mb-6 flex items-center gap-3 px-2" href="/">
-          <Image
-            src="/prophrase-logo.png"
-            alt="ProPhrase"
-            width={34}
-            height={34}
-            className="h-8 w-8 rounded-md object-cover"
-            priority
-          />
-          <span className="text-2xl font-bold leading-8 text-primary">ProPhrase</span>
+      <aside className="hidden w-64 shrink-0 flex-col overflow-y-auto border-r border-[#e1e3e4] bg-white px-6 pb-6 md:flex">
+        <Link className="-mx-6 mb-8 flex h-16 shrink-0 items-center gap-3 border-b border-[#e1e3e4] px-6" href="/">
+          <Image src="/prophrase-logo-transparent.png" alt="ProPhrase" width={36} height={36} className="h-9 w-9 object-contain" priority />
+          <div><p className="text-lg font-bold leading-5 text-primary">ProPhrase</p><p className="mt-0.5 text-[11px] leading-4 text-[#6b7280]">Work message assistant</p></div>
         </Link>
 
         <nav className="flex flex-col gap-1">
-          {sidebarItems.map((item) => {
+          {sidebarItems.filter((item) => item.view !== "rewrite").map((item) => {
             const isActive = activeView === item.view;
+            const label = item.view === "history" ? "History" : item.label;
 
             return (
               <button
                 className={
                   isActive
-                    ? "flex items-center gap-3 rounded-xl bg-[#1c1b1b] px-4 py-3 text-left text-white shadow-sm transition-all"
-                    : "group flex items-center gap-3 rounded-xl px-4 py-3 text-left text-text-muted transition-all hover:bg-surface-container hover:text-primary"
+                    ? "flex items-center gap-3 rounded-lg bg-[#f3f4f5] px-3 py-2.5 text-left text-primary transition-all"
+                    : "group flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[#6b7280] transition-all hover:bg-[#f3f4f5] hover:text-primary"
                 }
-                key={item.label}
+                key={item.view}
                 onClick={() => setActiveView(item.view)}
                 type="button"
               >
-                <Icon className="text-2xl" name={item.icon} />
-                <span className="text-sm font-medium leading-5">{item.label}</span>
+                <Icon className="text-xl" name={item.icon} />
+                <span className="text-sm font-medium leading-5">{label}</span>
               </button>
             );
           })}
-          <Link className="group flex items-center gap-3 rounded-xl px-4 py-3 text-left text-text-muted transition-all hover:bg-surface-container hover:text-primary" href="/settings">
-            <Icon className="text-2xl" name="user" />
+          <Link className="group flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[#6b7280] transition-all hover:bg-[#f3f4f5] hover:text-primary" href="/settings">
+            <Icon className="text-xl" name="user" />
             <span className="text-sm font-medium leading-5">Settings</span>
           </Link>
         </nav>
@@ -1321,7 +1354,19 @@ export function WorkspaceClient() {
         </div>
       </aside>
 
-      <section className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[#faf9f6]">
+      <section className={activeView === "rewrite" && workspaceMode === "rephrase" && !hasConversation && !hasStoredConversation && !isLoading ? "relative flex min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto bg-[#fbfbfb]" : "relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[#fbfbfb]"}>
+        <header className="hidden h-16 shrink-0 items-center justify-between border-b border-[#e1e3e4] bg-white px-8 md:flex">
+          <div className="flex items-center">
+            {activeView === "rewrite" ? <nav className="flex rounded-full bg-[#f3f4f5] p-1" aria-label="Workspace mode">
+              <button aria-pressed={workspaceMode === "rephrase"} className={workspaceMode === "rephrase" ? "min-h-9 rounded-full bg-black px-6 text-sm font-semibold text-white" : "min-h-9 rounded-full px-6 text-sm font-semibold text-[#6b7280] hover:bg-white hover:text-primary"} onClick={() => setWorkspaceMode("rephrase")} type="button">Rephrase</button>
+              <button aria-pressed={workspaceMode === "outcome"} className={workspaceMode === "outcome" ? "min-h-9 rounded-full bg-black px-6 text-sm font-semibold text-white" : "min-h-9 rounded-full px-6 text-sm font-semibold text-[#6b7280] hover:bg-white hover:text-primary"} onClick={() => setWorkspaceMode("outcome")} type="button">Outcome Assistant</button>
+            </nav> : null}
+          </div>
+          <div className="flex items-center gap-2">
+            <button aria-label="Open history" className="rounded-full p-2 text-[#6b7280] hover:bg-[#f3f4f5]" onClick={() => setActiveView("history")} type="button"><Icon className="text-xl" name="history" /></button>
+            <Link aria-label="Open settings" className="rounded-full p-2 text-[#6b7280] hover:bg-[#f3f4f5]" href="/settings"><Icon className="text-xl" name="user" /></Link>
+          </div>
+        </header>
         <div
           className="shrink-0 border-b border-border-subtle bg-surface/95 px-4 py-3 backdrop-blur md:hidden"
           ref={mobileAccountMenuRef}
@@ -1329,7 +1374,7 @@ export function WorkspaceClient() {
           <div className="flex items-center justify-between gap-3">
             <Link className="flex min-w-0 items-center gap-2" href="/">
               <Image
-                src="/prophrase-logo.png"
+                src="/prophrase-logo-transparent.png"
                 alt="ProPhrase"
                 width={30}
                 height={30}
@@ -1428,13 +1473,13 @@ export function WorkspaceClient() {
               </div>
             ) : null}
             {outcomeAssistantEnabled ? (
-              <div className="shrink-0 border-b border-border-subtle bg-[#faf9f6]/90 px-4 py-3 backdrop-blur-md md:px-10">
-                <div className="mx-auto flex max-w-5xl rounded-2xl border border-border-subtle bg-white p-1">
+              <div className="shrink-0 border-b border-border-subtle bg-[#faf9f6]/90 px-4 backdrop-blur-md md:hidden">
+                <div className="mx-auto flex h-16 max-w-5xl items-center gap-8">
                   <button
                     className={
                       workspaceMode === "rephrase"
-                        ? "flex-1 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white"
-                        : "flex-1 rounded-xl px-4 py-2 text-sm font-semibold text-text-muted"
+                        ? "h-16 border-b-2 border-primary px-1 text-xs font-semibold text-primary"
+                        : "h-16 border-b-2 border-transparent px-1 text-xs font-medium text-text-muted hover:text-primary"
                     }
                     onClick={() => setWorkspaceMode("rephrase")}
                     type="button"
@@ -1444,8 +1489,8 @@ export function WorkspaceClient() {
                   <button
                     className={
                       workspaceMode === "outcome"
-                        ? "flex-1 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white"
-                        : "flex-1 rounded-xl px-4 py-2 text-sm font-semibold text-text-muted"
+                        ? "h-16 border-b-2 border-primary px-1 text-xs font-semibold text-primary"
+                        : "h-16 border-b-2 border-transparent px-1 text-xs font-medium text-text-muted hover:text-primary"
                     }
                     onClick={() => setWorkspaceMode("outcome")}
                     type="button"
@@ -1473,6 +1518,12 @@ export function WorkspaceClient() {
               />
             ) : (
               <>
+            {!hasConversation && !hasStoredConversation && !isLoading ? <div className="shrink-0 px-4 pt-10 text-center md:px-10 md:pt-16">
+              <h1 className="text-4xl font-bold tracking-tight text-primary md:text-[56px] md:leading-[1.1]">Rewrite work messages with confidence.</h1>
+              <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-[#6b7280] md:text-lg">Paste your draft, choose a style, and get a clear professional message in seconds.</p>
+            </div> : null}
+            <div className={hasConversation || hasStoredConversation || isLoading ? "shrink-0 border-b border-[#e1e3e4] bg-white px-4 py-3 md:px-10" : "shrink-0 px-4 pt-10 md:px-10 md:pt-14"}>
+              <div className={hasConversation || hasStoredConversation || isLoading ? "mx-auto max-w-3xl" : "mx-auto max-w-4xl rounded-t-2xl border border-b-0 border-[#e1e3e4] bg-white px-5 pb-4 pt-6 shadow-[0_1px_3px_rgba(0,0,0,0.05)] md:px-8 md:pt-8"}>
             {preferencesFeatureEnabled ? <QuickStylesBar
               disabled={isLoading}
               onPreferencesChange={setPreferences}
@@ -1480,12 +1531,14 @@ export function WorkspaceClient() {
               preferences={preferences}
               selectedTone={selectedTone}
             /> : (
-              <div className="flex gap-2 overflow-x-auto border-b border-border-subtle px-4 py-3 md:justify-center">
-                {tones.map((tone) => <button aria-pressed={selectedTone === tone} className={selectedTone === tone ? "min-h-11 shrink-0 rounded-lg bg-primary px-4 text-sm font-semibold text-white" : "min-h-11 shrink-0 rounded-lg border border-border-subtle bg-white px-4 text-sm font-semibold text-text-muted"} key={tone} onClick={() => handleToneChange(tone)} type="button">{tone}</button>)}
+              <div className="flex gap-2 overflow-x-auto md:justify-center">
+                {tones.map((tone) => <button aria-pressed={selectedTone === tone} className={selectedTone === tone ? "min-h-9 shrink-0 rounded-full bg-black px-5 text-xs font-semibold text-white" : "min-h-9 shrink-0 rounded-full bg-[#f3f4f5] px-5 text-xs font-semibold text-[#6b7280]"} key={tone} onClick={() => handleToneChange(tone)} type="button">{tone}</button>)}
               </div>
             )}
+              </div>
+            </div>
 
-            <div className="flex-1 overflow-y-auto px-4 py-6 pb-40 md:px-10 md:py-8 md:pb-48">
+            <div className={hasConversation || hasStoredConversation || isLoading ? "flex-1 overflow-y-auto px-4 py-6 pb-40 md:px-10 md:py-8 md:pb-48" : "shrink-0 px-4 md:px-10"}>
               <div className="mx-auto flex max-w-3xl flex-col gap-8">
                 {hasStoredConversation ? (
                   <>
@@ -1675,9 +1728,7 @@ export function WorkspaceClient() {
                       </div>
                     ) : null}
                   </>
-                ) : (
-                  <div className="min-h-[45vh]" aria-hidden="true" />
-                )}
+                ) : null}
 
                 {outputText ? (
                   <div className="mt-4 flex flex-wrap justify-center gap-3">
@@ -1756,17 +1807,17 @@ export function WorkspaceClient() {
             </div>
 
             <div
-              className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-3 md:p-8"
+              className={hasConversation || hasStoredConversation || isLoading ? "pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-3 md:p-8" : "pointer-events-none relative z-10 mx-auto flex w-full max-w-4xl justify-center px-4 md:px-0"}
               id="composer"
             >
-              <div className="glass-effect pointer-events-auto flex w-full max-w-3xl items-center gap-1.5 rounded-[24px] border border-border-subtle p-2.5 shadow-2xl ring-1 ring-black/5 transition-all focus-within:border-accent-warm/70 focus-within:ring-2 focus-within:ring-accent-warm/25 md:gap-2 md:rounded-[28px] md:p-3">
+              <div className={hasConversation || hasStoredConversation || isLoading ? "glass-effect pointer-events-auto flex w-full max-w-3xl items-center gap-1.5 rounded-[24px] border border-border-subtle p-2.5 shadow-2xl ring-1 ring-black/5 transition-all focus-within:border-black md:gap-2 md:rounded-[28px] md:p-3" : "pointer-events-auto relative flex w-full flex-col rounded-b-2xl border border-t-0 border-[#e1e3e4] bg-white px-5 pb-6 pt-3 shadow-[0_1px_3px_rgba(0,0,0,0.05)] transition-all focus-within:border-black md:min-h-[300px] md:px-8 md:pb-8"}>
                 <button
                   aria-label={isListening ? "Stop voice input" : "Start voice input"}
                   aria-pressed={isListening}
                   className={
                     isListening
-                      ? "rounded-2xl bg-primary p-2.5 text-white transition-all md:p-3"
-                      : "rounded-2xl p-2.5 text-text-muted transition-all hover:bg-surface-container hover:text-primary md:p-3"
+                      ? "rounded-xl bg-primary p-2.5 text-white transition-all md:p-3"
+                      : hasConversation || hasStoredConversation || isLoading ? "rounded-2xl p-2.5 text-text-muted transition-all hover:bg-surface-container hover:text-primary md:p-3" : "absolute bottom-6 left-6 rounded-lg p-2 text-text-muted hover:bg-surface-container hover:text-primary"
                   }
                   disabled={
                     isLoading ||
@@ -1778,17 +1829,17 @@ export function WorkspaceClient() {
                 >
                   <Icon className="text-2xl" name="mic" />
                 </button>
-                <div className="min-w-0 flex-1 rounded-2xl px-1 transition-colors focus-within:bg-white/35">
+                <div className={hasConversation || hasStoredConversation || isLoading ? "min-w-0 flex-1 rounded-2xl px-1 transition-colors focus-within:bg-white/35" : "min-w-0 w-full flex-1"}>
                   <textarea
-                    className="block h-12 max-h-28 w-full resize-none appearance-none overflow-y-auto border-0 bg-transparent px-2 py-3 text-base leading-6 text-primary shadow-none outline-none ring-0 placeholder:text-text-muted focus:border-transparent focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
+                    className={hasConversation || hasStoredConversation || isLoading ? "block h-12 max-h-28 w-full resize-none appearance-none overflow-y-auto border-0 bg-transparent px-2 py-3 text-base leading-6 text-primary shadow-none outline-none ring-0 placeholder:text-text-muted focus:border-transparent focus:outline-none focus:ring-0" : "block min-h-[220px] w-full resize-none rounded-xl border border-[#e1e3e4] bg-[#fafafa] p-6 text-base leading-7 text-primary outline-none ring-0 placeholder:text-[#9ca3af] focus:border-black/50 focus:ring-0 md:text-lg"}
                     onChange={(event) => setInputText(event.target.value)}
                     onKeyDown={(event) => {
                       if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
                         void rewriteMessage();
                       }
                     }}
-                    placeholder="Type what you want to say..."
-                    rows={1}
+                    placeholder={hasConversation || hasStoredConversation ? "Type what you want to say..." : "Paste your message here to start rephrasing..."}
+                    rows={hasConversation || hasStoredConversation ? 1 : 6}
                     value={inputText}
                   />
                   {attachmentName ? (
@@ -1814,7 +1865,7 @@ export function WorkspaceClient() {
                     </p>
                   ) : null}
                 </div>
-                <div className="flex shrink-0 items-center gap-2">
+                <div className={hasConversation || hasStoredConversation || isLoading ? "flex shrink-0 items-center gap-2" : "mt-4 flex w-full shrink-0 items-center justify-end gap-2 border-t border-border-subtle pt-4"}>
                   <input
                     accept=".txt,text/plain,text/markdown,.md"
                     className="hidden"
@@ -1824,24 +1875,37 @@ export function WorkspaceClient() {
                   />
                   <button
                     aria-label="Attach file"
-                    className="hidden rounded-2xl p-3 text-text-muted transition-all hover:bg-surface-container hover:text-primary sm:inline-flex"
+                    className={hasConversation || hasStoredConversation || isLoading ? "hidden rounded-2xl p-3 text-text-muted transition-all hover:bg-surface-container hover:text-primary sm:inline-flex" : "rounded-lg p-2.5 text-text-muted transition-all hover:bg-surface-container hover:text-primary"}
                     onClick={() => fileInputRef.current?.click()}
                     type="button"
                   >
                     <Icon className="text-2xl" name="attach" />
                   </button>
                   <button
-                    className="flex items-center gap-2 rounded-2xl bg-primary px-3 py-3 text-sm font-medium leading-5 text-white shadow-lg transition-all hover:scale-[1.02] active:scale-95 disabled:cursor-wait disabled:opacity-60 md:px-5"
+                    className={hasConversation || hasStoredConversation || isLoading ? "flex items-center gap-2 rounded-2xl bg-primary px-3 py-3 text-sm font-medium leading-5 text-white shadow-lg transition-all hover:scale-[1.02] active:scale-95 disabled:cursor-wait disabled:opacity-60 md:px-5" : "flex h-12 w-12 items-center justify-center rounded-xl bg-black p-0 text-sm font-semibold text-white shadow-md transition-all hover:bg-neutral-800 active:scale-95 disabled:cursor-wait disabled:opacity-60"}
                     disabled={isLoading}
                     onClick={() => void rewriteMessage()}
                     type="button"
                   >
-                    <span className="hidden sm:inline">{isLoading ? "Writing" : creditEstimate ? `Rewrite · ${creditEstimate.creditCost}` : "Rewrite"}</span>
+                    <span className={hasConversation || hasStoredConversation || isLoading ? "hidden sm:inline" : "sr-only"}>{isLoading ? "Writing" : creditEstimate ? `Rewrite · ${creditEstimate.creditCost}` : "Rewrite"}</span>
                     <Icon className="text-xl" name="spark" />
                   </button>
                 </div>
               </div>
             </div>
+            {!hasConversation && !hasStoredConversation && !isLoading ? (
+              <div className="mx-auto grid w-full max-w-4xl shrink-0 grid-cols-1 gap-6 px-4 pt-8 md:grid-cols-3 md:px-0 md:pt-12">
+                <div className="flex flex-col gap-4 rounded-2xl border border-[#e1e3e4] bg-white p-7 shadow-[0_1px_3px_rgba(0,0,0,0.05)]"><span className="flex h-10 w-10 items-center justify-center rounded-lg bg-black/5 text-black"><Icon name="magic" /></span><div><p className="text-base font-bold text-primary">Understands your context</p><p className="mt-2 text-sm leading-6 text-[#6b7280]">Keeps the meaning while adapting your message to the selected style.</p></div></div>
+                <div className="flex flex-col gap-4 rounded-2xl border border-[#e1e3e4] bg-white p-7 shadow-[0_1px_3px_rgba(0,0,0,0.05)]"><span className="flex h-10 w-10 items-center justify-center rounded-lg bg-black/5 text-black"><Icon name="spark" /></span><div><p className="text-base font-bold text-primary">Writes naturally</p><p className="mt-2 text-sm leading-6 text-[#6b7280]">Produces clear language that sounds professional without feeling robotic.</p></div></div>
+                <div className="flex flex-col gap-4 rounded-2xl border border-[#e1e3e4] bg-white p-7 shadow-[0_1px_3px_rgba(0,0,0,0.05)]"><span className="flex h-10 w-10 items-center justify-center rounded-lg bg-black/5 text-black"><Icon name="bolt" /></span><div><p className="text-base font-bold text-primary">Delivers quickly</p><p className="mt-2 text-sm leading-6 text-[#6b7280]">Returns a polished message in seconds so you can keep working.</p></div></div>
+              </div>
+            ) : null}
+            {!hasConversation && !hasStoredConversation && !isLoading ? (
+              <footer className="mx-auto mt-24 flex w-full max-w-4xl flex-col items-center justify-between gap-4 border-t border-[#e1e3e4] px-4 py-8 text-xs font-medium text-[#6b7280] md:flex-row md:px-0">
+                <div className="flex flex-wrap items-center justify-center gap-6"><span>© 2026 ProPhrase AI</span><Link className="hover:text-primary" href="/legal">Privacy</Link><Link className="hover:text-primary" href="/legal">Terms</Link><Link className="hover:text-primary" href="/settings">Support</Link></div>
+                <span>Built for clear, confident communication</span>
+              </footer>
+            ) : null}
               </>
             )}
           </>

@@ -1,10 +1,10 @@
 export function isOutcomeAssistantClientEnabled() {
-  return process.env.NEXT_PUBLIC_OUTCOME_ASSISTANT_ENABLED === "true";
+  return process.env.NEXT_PUBLIC_OUTCOME_ASSISTANT_ENABLED !== "disabled";
 }
 
 export function isOutcomeAssistantEnabled() {
   return (
-    isOutcomeAssistantClientEnabled() ||
-    process.env.OUTCOME_ASSISTANT_ENABLED === "true"
+    process.env.OUTCOME_ASSISTANT_ENABLED !== "disabled" &&
+    isOutcomeAssistantClientEnabled()
   );
 }

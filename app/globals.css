@@ -12,7 +12,7 @@
   --on-primary: #ffffff;
   --border-subtle: #ebe6dc;
   --success-tint: #eaf8ef;
-  --ai-purple: #7c6df2;
+  --ai-purple: #000000;
   --accent-warm: #e8c27a;
 }
 
@@ -27,7 +27,7 @@
   --color-on-primary: #ffffff;
   --color-border-subtle: #ebe6dc;
   --color-success-tint: #eaf8ef;
-  --color-ai-purple: #7c6df2;
+  --color-ai-purple: #000000;
   --color-accent-warm: #e8c27a;
   --spacing-container: 1200px;
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;

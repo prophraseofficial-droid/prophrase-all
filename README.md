@@ -106,6 +106,7 @@ https://prophrase.in/workspace
 http://localhost:3000/api/auth/callback
 http://localhost:3000/auth/finish
 http://localhost:3000/workspace
+prophrase://auth/callback
 ```
 
 Use `NEXT_PUBLIC_APP_URL=http://localhost:3000` for local development and
@@ -125,6 +126,22 @@ Create `mobile/.env` from `mobile/.env.example` and point
 
 Mobile requests use Supabase bearer tokens, so the existing backend APIs work
 for browser cookies and native mobile sessions.
+
+## Desktop App
+
+The Electron desktop client lives in `desktop/` and supports macOS and Windows.
+It securely loads the hosted ProPhrase app, while local development points to
+the Next.js server on port 3000.
+
+```bash
+npm run desktop:install
+npm run dev             # first terminal
+npm run desktop:dev     # second terminal
+```
+
+Build platform installers with `npm run desktop:build:mac` or
+`npm run desktop:build:win`. See `desktop/README.md` for packaging and signing
+details.
 
 ## Testing
 

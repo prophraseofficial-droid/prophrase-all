@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { getPublicAppUrl } from "@/lib/app-config";
+import {
+  getAuthCallbackUrl,
+  storeAuthRedirectContext,
+} from "@/lib/app-config";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 type GoogleCredentialResponse = {
@@ -32,6 +35,11 @@ declare global {
       accounts?: {
         id?: GoogleAccountsId;
       };
+    };
+    prophraseDesktop?: {
+      isDesktop: boolean;
+      platform: string;
+      openExternalAuth: (url: string) => Promise<void>;
     };
   }
 }
@@ -71,6 +79,8 @@ export function GoogleLoginButton() {
   });
   const [googleButtonReady, setGoogleButtonReady] = useState(false);
   const [fallbackAvailable, setFallbackAvailable] = useState(false);
+  const isDesktop =
+    typeof window !== "undefined" && Boolean(window.prophraseDesktop?.isDesktop);
 
   function getSafeNextPath() {
     const params = new URLSearchParams(window.location.search);
@@ -84,6 +94,10 @@ export function GoogleLoginButton() {
   }
 
   useEffect(() => {
+    if (window.prophraseDesktop?.isDesktop) {
+      setFallbackAvailable(true);
+      return;
+    }
     if (!googleClientId || !googleButtonRef.current) return;
 
     const clientId = googleClientId;
@@ -183,19 +197,25 @@ export function GoogleLoginButton() {
 
     try {
       const supabase = createSupabaseBrowserClient();
-      const appUrl = getPublicAppUrl(window.location.origin);
       const nextPath = getSafeNextPath();
-      const { error: authError } = await supabase.auth.signInWithOAuth({
+      storeAuthRedirectContext(nextPath);
+      const desktop = window.prophraseDesktop;
+      const { data, error: authError } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${appUrl}/auth/finish?next=${encodeURIComponent(
-            nextPath,
-          )}`,
+          redirectTo: desktop?.isDesktop
+            ? "prophrase://auth/callback"
+            : getAuthCallbackUrl(window.location.origin),
+          skipBrowserRedirect: Boolean(desktop?.isDesktop),
         },
       });
 
       if (authError) {
         throw authError;
+      }
+      if (desktop?.isDesktop) {
+        if (!data.url) throw new Error("Google did not return a sign-in URL.");
+        await desktop.openExternalAuth(data.url);
       }
     } catch (caughtError) {
       setError(
@@ -209,8 +229,8 @@ export function GoogleLoginButton() {
 
   return (
     <div className="space-y-3">
-      {googleClientId ? (
-        <div className="relative flex min-h-[54px] w-full items-center justify-center rounded-full border border-border-subtle bg-white px-2 py-2">
+      {googleClientId && !isDesktop ? (
+        <div className="relative flex min-h-[54px] w-full items-center justify-center overflow-hidden rounded-full">
           {!googleButtonReady ? (
             <span className="text-sm font-medium leading-5 text-text-muted">
               Loading Google...
@@ -222,7 +242,7 @@ export function GoogleLoginButton() {
           />
         </div>
       ) : null}
-      {googleClientId && fallbackAvailable ? (
+      {(googleClientId && fallbackAvailable) || isDesktop ? (
         <button
           className="flex w-full items-center justify-center gap-3 rounded-full border border-border-subtle bg-white py-4 text-sm font-medium leading-5 text-primary transition-colors hover:bg-surface active:scale-[0.98] disabled:cursor-wait disabled:opacity-70"
           disabled={isLoading}
@@ -230,10 +250,14 @@ export function GoogleLoginButton() {
           type="button"
         >
           <GoogleMark />
-          {isLoading ? "Opening Google..." : "Continue with Google redirect"}
+          {isLoading
+            ? "Opening Google..."
+            : isDesktop
+              ? "Continue with Google"
+              : "Continue with Google redirect"}
         </button>
       ) : null}
-      {!googleClientId ? (
+      {!googleClientId && !isDesktop ? (
         <button
           className="flex w-full items-center justify-center gap-3 rounded-full border border-border-subtle bg-white py-4 text-sm font-medium leading-5 text-primary transition-colors hover:bg-surface active:scale-[0.98] disabled:cursor-wait disabled:opacity-70"
           disabled={isLoading}

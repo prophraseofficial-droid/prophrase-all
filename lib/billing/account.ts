@@ -1,5 +1,9 @@
-import { addEntitlementMonth, freeCreditPeriod } from "@/lib/billing/dates";
+import {
+  freeCreditPeriod,
+  resolvePaidCreditCycle,
+} from "@/lib/billing/dates";
 import { getPlanDefinition } from "@/lib/billing/catalog";
+import { remainingAfterDuplicateGrantRepair } from "@/lib/billing/ledger-model";
 import type {
   BillingInterval,
   CreditBalance,
@@ -26,6 +30,15 @@ type SubscriptionBillingRow = {
   entitlement_cycle_start: string | null;
   entitlement_cycle_end: string | null;
   cancel_at_period_end: boolean;
+  created_at: string;
+};
+
+type PaidGrantBucketRow = {
+  id: string;
+  original_amount: number;
+  remaining_amount: number;
+  grant_period_key: string;
+  created_at: string;
 };
 
 function internalPlan(value?: string | null): PlanId {
@@ -64,7 +77,7 @@ export async function getBillingAccount(userId: string) {
       .single(),
     supabase
       .from("subscriptions")
-      .select("id, plan_id, billing_interval, internal_status, current_period_start, current_period_end, entitlement_cycle_start, entitlement_cycle_end, cancel_at_period_end")
+      .select("id, plan_id, billing_interval, internal_status, current_period_start, current_period_end, entitlement_cycle_start, entitlement_cycle_end, cancel_at_period_end, created_at")
       .eq("user_id", userId)
       .in("internal_status", ["active", "grace_period", "past_due", "canceled"])
       .order("updated_at", { ascending: false })
@@ -106,7 +119,10 @@ export async function getBillingAccount(userId: string) {
         ? "expired" as const
       : internalStatus(profile.subscription_status),
     currentPeriodStart:
-      subscription?.current_period_start ?? profile.current_period_start ?? null,
+      subscription?.current_period_start ??
+      profile.current_period_start ??
+      subscription?.created_at ??
+      null,
     currentPeriodEnd:
       subscription?.current_period_end ?? profile.current_period_end ?? null,
     entitlementCycleStart: subscription?.entitlement_cycle_start ?? null,
@@ -116,33 +132,77 @@ export async function getBillingAccount(userId: string) {
   };
 }
 
-function paidCycle(
+async function adoptExistingPaidGrant(
+  userId: string,
   account: Awaited<ReturnType<typeof getBillingAccount>>,
-  now = new Date(),
+  cycle: { start: Date; end: Date },
+  periodKey: string,
+  allowance: number,
 ) {
-  if (account.entitlementCycleStart && account.entitlementCycleEnd) {
-    const start = new Date(account.entitlementCycleStart);
-    const end = new Date(account.entitlementCycleEnd);
-    if (start <= now && end > now) return { start, end };
+  const supabase = createSupabaseAdminClient();
+  const sourceType =
+    account.plan === "plus" ? "plus_monthly_grant" : "pro_monthly_grant";
+  let query = supabase
+    .from("credit_buckets")
+    .select("id, original_amount, remaining_amount, grant_period_key, created_at")
+    .eq("user_id", userId)
+    .eq("plan_id", account.plan)
+    .eq("source_type", sourceType)
+    .lt("valid_from", cycle.end.toISOString())
+    .gt("expires_at", cycle.start.toISOString());
+  query = account.subscriptionId
+    ? query.eq("source_reference_id", account.subscriptionId)
+    : query.is("source_reference_id", null);
+  const { data, error } = await query.order("created_at", { ascending: true });
+  if (error) throw error;
+
+  const buckets = (data ?? []) as PaidGrantBucketRow[];
+  if (!buckets.length) return false;
+  if (buckets.length === 1 && buckets[0].grant_period_key === periodKey) {
+    return true;
   }
-  const anchor = new Date(account.currentPeriodStart ?? now.toISOString());
-  if (account.billingInterval === "monthly") {
-    return {
-      start: anchor,
-      end: new Date(account.currentPeriodEnd ?? addEntitlementMonth(anchor, 1)),
-    };
+  const keeper =
+    buckets.find((bucket) => bucket.grant_period_key === periodKey) ?? buckets[0];
+  const remainingAmount = remainingAfterDuplicateGrantRepair(buckets, allowance);
+  const duplicateIds = buckets
+    .filter((bucket) => bucket.id !== keeper.id)
+    .map((bucket) => bucket.id);
+
+  if (duplicateIds.length) {
+    const { error: duplicateError } = await supabase
+      .from("credit_buckets")
+      .update({ remaining_amount: 0 })
+      .in("id", duplicateIds);
+    if (duplicateError) throw duplicateError;
   }
-  let start = anchor;
-  let end = addEntitlementMonth(anchor, 1);
-  for (let index = 0; index < 12 && end <= now; index += 1) {
-    start = end;
-    end = addEntitlementMonth(anchor, index + 2);
+  const { error: keeperError } = await supabase
+    .from("credit_buckets")
+    .update({
+      remaining_amount: remainingAmount,
+      valid_from: cycle.start.toISOString(),
+      expires_at: cycle.end.toISOString(),
+      grant_period_key: periodKey,
+    })
+    .eq("id", keeper.id);
+  if (keeperError) throw keeperError;
+
+  const { error: reconcileError } = await supabase.rpc("reconcile_credit_wallet", {
+    p_user_id: userId,
+    p_apply: true,
+  });
+  if (reconcileError) throw reconcileError;
+  if (duplicateIds.length) {
+    await supabase.from("billing_audit_events").insert({
+      user_id: userId,
+      subscription_id: account.subscriptionId,
+      event_type: "duplicate_paid_credit_grants_repaired",
+      metadata: {
+        duplicateBucketCount: duplicateIds.length,
+        periodKey,
+      },
+    });
   }
-  const paidEnd = account.currentPeriodEnd
-    ? new Date(account.currentPeriodEnd)
-    : null;
-  if (paidEnd && end > paidEnd) end = paidEnd;
-  return { start, end };
+  return true;
 }
 
 export async function ensureCurrentCreditGrant(userId: string, now = new Date()) {
@@ -166,11 +226,25 @@ export async function ensureCurrentCreditGrant(userId: string, now = new Date())
     return { account: { ...account, plan: "free" as const }, period };
   }
 
-  const cycle = paidCycle(account, now);
+  const cycle = resolvePaidCreditCycle(account, now);
   const periodKey = `${account.plan}:${cycle.start.toISOString()}`;
   if (account.subscriptionStatus === "grace_period" || account.subscriptionStatus === "past_due") {
     const { error: walletError } = await supabase.rpc("ensure_credit_wallet", { p_user_id: userId });
     if (walletError) throw walletError;
+    return {
+      account,
+      period: { periodKey, validFrom: cycle.start.toISOString(), expiresAt: cycle.end.toISOString() },
+    };
+  }
+  if (
+    await adoptExistingPaidGrant(
+      userId,
+      account,
+      cycle,
+      periodKey,
+      plan.monthlyCredits ?? 0,
+    )
+  ) {
     return {
       account,
       period: { periodKey, validFrom: cycle.start.toISOString(), expiresAt: cycle.end.toISOString() },

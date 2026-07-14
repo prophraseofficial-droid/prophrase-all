@@ -69,6 +69,17 @@ test("critical semantic regressions are rejected", () => {
   }
 });
 
+test("natural contractions preserve negation while correcting grammar", () => {
+  const failures = validateSemanticInvariants({
+    originalText: "Hi Alex, sorry that i have not committed the code which you told on wednessaday.",
+    outputText: "Hi Alex, I'm sorry I haven't committed the code you mentioned on Wednesday.",
+  });
+  assert.equal(
+    failures.some((failure) => failure.code === "negation_removed"),
+    false,
+  );
+});
+
 test("mode-specific unsafe additions are rejected", () => {
   assert.ok(validateSemanticInvariants({
     originalText: "PFM-22186 fails on Version 7.4.",

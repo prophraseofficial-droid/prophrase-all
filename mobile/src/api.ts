@@ -52,7 +52,7 @@ async function requestJson<T>({
   const data = (await response.json().catch(() => null)) as T & ApiError;
 
   if (!response.ok) {
-    const error = new Error(data?.message || "Request failed.");
+    const error = new Error(data?.message || data?.error || "Request failed.");
     Object.assign(error, { payload: data, status: response.status });
     throw error;
   }

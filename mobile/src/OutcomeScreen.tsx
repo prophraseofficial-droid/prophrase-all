@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import * as Clipboard from "expo-clipboard";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { prepareOutcomeMessage } from "./api";
@@ -19,6 +20,7 @@ export function OutcomeScreen({ session, preferences, options }: {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [status, setStatus] = useState("");
   const [variants, setVariants] = useState<Array<{ id: string; label: string; message: string; readerInterpretation: string }>>([]);
   const [selectedVariant, setSelectedVariant] = useState(preferences.outcomeAssistant.defaultVariant);
   const recipientById = Object.fromEntries(options.recipients.map((item) => [item.id, item]));
@@ -48,6 +50,13 @@ export function OutcomeScreen({ session, preferences, options }: {
     } finally { setLoading(false); }
   }
 
+  async function copySelectedVariant() {
+    const selected = variants.find((variant) => variant.id === selectedVariant);
+    if (!selected) return;
+    await Clipboard.setStringAsync(selected.message);
+    setStatus("Copied to this phone.");
+  }
+
   const visibleRecipients = recipient && !preferences.outcomeAssistant.favoriteRecipients.includes(recipient)
     ? [...preferences.outcomeAssistant.favoriteRecipients, recipient]
     : preferences.outcomeAssistant.favoriteRecipients;
@@ -73,7 +82,7 @@ export function OutcomeScreen({ session, preferences, options }: {
       {error ? <Text accessibilityLiveRegion="assertive" style={styles.error}>{error}</Text> : null}
       <Pressable disabled={loading} onPress={() => void generate()} style={[styles.primary, loading && styles.disabled]}><Text style={styles.primaryText}>{loading ? "Preparing..." : "Prepare my message"}</Text></Pressable>
 
-      {variants.length ? <View style={styles.results}><Text style={styles.resultsTitle}>Choose your result</Text><View style={styles.variantTabs}>{variants.map((variant) => <Pressable key={variant.id} onPress={() => setSelectedVariant(variant.id as "safe" | "balanced" | "firm")} style={[styles.variantTab, selectedVariant === variant.id && styles.variantTabActive]}><Text style={[styles.variantTabText, selectedVariant === variant.id && styles.variantTabTextActive]}>{variant.label}</Text></Pressable>)}</View>{variants.filter((variant) => variant.id === selectedVariant).map((variant) => <View style={styles.resultCard} key={variant.id}><Text style={styles.resultMessage}>{variant.message}</Text><Text style={styles.readerLabel}>How it may read</Text><Text style={styles.readerCopy}>{variant.readerInterpretation}</Text></View>)}</View> : null}
+      {variants.length ? <View style={styles.results}><Text style={styles.resultsTitle}>Choose your result</Text><View style={styles.variantTabs}>{variants.map((variant) => <Pressable key={variant.id} onPress={() => { setSelectedVariant(variant.id as "safe" | "balanced" | "firm"); setStatus(""); }} style={[styles.variantTab, selectedVariant === variant.id && styles.variantTabActive]}><Text style={[styles.variantTabText, selectedVariant === variant.id && styles.variantTabTextActive]}>{variant.label}</Text></Pressable>)}</View>{variants.filter((variant) => variant.id === selectedVariant).map((variant) => <View style={styles.resultCard} key={variant.id}><Text style={styles.resultMessage}>{variant.message}</Text><Text style={styles.readerLabel}>How it may read</Text><Text style={styles.readerCopy}>{variant.readerInterpretation}</Text><Pressable onPress={() => void copySelectedVariant()} style={{ alignItems: "center", borderColor: colors.border, borderRadius: 10, borderWidth: 1, justifyContent: "center", marginTop: 18, minHeight: 44 }}><Text style={{ color: colors.text, fontSize: 14, fontWeight: "800" }}>Copy</Text></Pressable>{status ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 8, textAlign: "center" }}>{status}</Text> : null}</View>)}</View> : null}
     </ScrollView>
 
     <Modal animationType="slide" transparent visible={Boolean(selector)} onRequestClose={() => setSelector(null)}><Pressable style={styles.backdrop} onPress={() => setSelector(null)} /><View style={styles.sheet}><View style={styles.handle} /><Text style={styles.sheetTitle}>{selector === "recipient" ? "Choose a recipient" : "Choose a goal"}</Text><TextInput onChangeText={setSearch} placeholder="Search" placeholderTextColor={colors.muted} style={styles.search} value={search} /><ScrollView>{selectorOptions.map((item) => <Pressable key={item.id} onPress={() => { if (selector === "recipient") setRecipient(item.id as RecipientType); else setIntent(item.id as IntentType); setSelector(null); }} style={styles.sheetRow}><Text style={styles.sheetRowText}>{item.label}</Text></Pressable>)}</ScrollView></View></Modal>

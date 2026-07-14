@@ -10,7 +10,11 @@ import {
 import { getPlanCatalog } from "../lib/billing/catalog.ts";
 import { formatInrFromPaise } from "../lib/billing/format.ts";
 import { addEntitlementMonth, freeCreditPeriod } from "../lib/billing/dates.ts";
-import { allocateByEarliestExpiry } from "../lib/billing/ledger-model.ts";
+import {
+  allocateByEarliestExpiry,
+  remainingAfterDuplicateGrantRepair,
+} from "../lib/billing/ledger-model.ts";
+import { resolvePaidCreditCycle } from "../lib/billing/dates.ts";
 import { sanitizeBillingAnalyticsMetadata } from "../lib/billing/analytics.ts";
 import crypto from "node:crypto";
 import {
@@ -99,6 +103,42 @@ test("allocates from earliest expiry and oldest bucket", () => {
     { bucketId: "newer", amount: 2 },
   ]);
   assert.throws(() => allocateByEarliestExpiry([], 1), /INSUFFICIENT_CREDITS/);
+});
+
+test("legacy paid accounts use one stable cycle throughout the month", () => {
+  const account = {
+    billingInterval: "annual" as const,
+    currentPeriodStart: null,
+    currentPeriodEnd: null,
+    entitlementCycleStart: null,
+    entitlementCycleEnd: null,
+  };
+  const morning = resolvePaidCreditCycle(account, new Date("2026-07-12T05:00:00Z"));
+  const evening = resolvePaidCreditCycle(account, new Date("2026-07-12T19:00:00Z"));
+
+  assert.equal(morning.start.toISOString(), "2026-07-01T00:00:00.000Z");
+  assert.equal(evening.start.toISOString(), morning.start.toISOString());
+  assert.equal(evening.end.toISOString(), morning.end.toISOString());
+});
+
+test("duplicate paid grants preserve usage but never exceed one allowance", () => {
+  assert.equal(
+    remainingAfterDuplicateGrantRepair(
+      Array.from({ length: 9 }, () => ({ original_amount: 300, remaining_amount: 300 })),
+      300,
+    ),
+    300,
+  );
+  assert.equal(
+    remainingAfterDuplicateGrantRepair(
+      [
+        { original_amount: 300, remaining_amount: 285 },
+        { original_amount: 300, remaining_amount: 300 },
+      ],
+      300,
+    ),
+    285,
+  );
 });
 
 test("billing analytics excludes message and identity content", () => {

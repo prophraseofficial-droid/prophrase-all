@@ -28,3 +28,15 @@ export function allocateByEarliestExpiry(
   if (remaining > 0) throw new Error("INSUFFICIENT_CREDITS");
   return allocations;
 }
+
+export function remainingAfterDuplicateGrantRepair(
+  buckets: Array<{ original_amount: number; remaining_amount: number }>,
+  allowance: number,
+) {
+  const consumed = buckets.reduce(
+    (total, bucket) =>
+      total + Math.max(0, bucket.original_amount - bucket.remaining_amount),
+    0,
+  );
+  return Math.max(0, allowance - consumed);
+}

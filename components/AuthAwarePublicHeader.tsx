@@ -5,7 +5,7 @@ import { PublicHeader } from "@/components/PublicHeader";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 type AuthAwarePublicHeaderProps = {
-  active?: "product" | "pricing" | "legal";
+  active?: "product" | "pricing" | "legal" | "api";
   ctaLabel?: string;
 };
 

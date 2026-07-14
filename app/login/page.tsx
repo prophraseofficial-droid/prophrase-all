@@ -22,7 +22,7 @@ export default async function LoginPage() {
         <div className="mx-auto max-w-[500px] space-y-8">
           <Link className="mb-16 inline-flex" href="/">
             <Image
-              src="/prophrase-logo.png"
+              src="/prophrase-logo-transparent.png"
               alt="ProPhrase"
               width={48}
               height={48}
@@ -88,7 +88,7 @@ export default async function LoginPage() {
         <div className="w-full max-w-[420px]">
           <Link className="mb-8 flex justify-center md:hidden" href="/">
             <Image
-              src="/prophrase-logo.png"
+              src="/prophrase-logo-transparent.png"
               alt="ProPhrase"
               width={40}
               height={40}

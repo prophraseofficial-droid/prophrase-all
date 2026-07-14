@@ -4,7 +4,7 @@ import { PublicUserMenu } from "@/components/PublicUserMenu";
 
 type PublicHeaderProps = {
   isAuthenticated: boolean;
-  active?: "product" | "pricing" | "legal";
+  active?: "product" | "pricing" | "legal" | "api";
   ctaLabel?: string;
   userEmail?: string;
   userName?: string;
@@ -26,7 +26,7 @@ export function PublicHeader({
       <div className="mx-auto flex w-full max-w-container items-center justify-between px-5 md:px-10">
         <Link className="flex items-center gap-3" href={brandHref}>
           <Image
-            src="/prophrase-logo.png"
+            src="/prophrase-logo-transparent.png"
             alt="ProPhrase"
             width={36}
             height={40}
@@ -49,6 +49,12 @@ export function PublicHeader({
             How it works
           </Link>
           <Link
+            className="text-sm font-medium leading-5 text-text-muted transition-colors hover:text-primary"
+            href="/#features"
+          >
+            Features
+          </Link>
+          <Link
             className={
               active === "pricing"
                 ? "border-b-2 border-primary pb-1 text-sm font-bold leading-5 text-primary"
@@ -63,6 +69,16 @@ export function PublicHeader({
             href="/#examples"
           >
             Examples
+          </Link>
+          <Link
+            className={
+              active === "api"
+                ? "border-b-2 border-primary pb-1 text-sm font-bold leading-5 text-primary"
+                : "text-sm font-medium leading-5 text-text-muted transition-colors hover:text-primary"
+            }
+            href="/developers/api"
+          >
+            API
           </Link>
           {isAuthenticated ? null : (
             <a

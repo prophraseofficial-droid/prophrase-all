@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { getSafeAuthOrigin } from "@/lib/app-config";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 function safeNextPath(value: string | null) {
@@ -30,12 +31,24 @@ export function AuthFinishClient() {
     () => safeNextPath(searchParams.get("next")),
     [searchParams],
   );
+  const intendedOrigin = useMemo(
+    () => getSafeAuthOrigin(searchParams.get("origin")),
+    [searchParams],
+  );
+  const restartHref = `${intendedOrigin ?? ""}/login?next=${encodeURIComponent(nextPath)}`;
 
   useEffect(() => {
     if (hasStartedRef.current) return;
     hasStartedRef.current = true;
 
     async function finishAuth() {
+      if (intendedOrigin && window.location.origin !== intendedOrigin) {
+        window.location.replace(
+          `${intendedOrigin}${window.location.pathname}${window.location.search}`,
+        );
+        return;
+      }
+
       const authError =
         searchParams.get("error_description") ?? searchParams.get("error");
       if (authError) {
@@ -68,7 +81,7 @@ export function AuthFinishClient() {
     }
 
     void finishAuth();
-  }, [nextPath, searchParams]);
+  }, [intendedOrigin, nextPath, searchParams]);
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-surface px-5">
@@ -80,7 +93,7 @@ export function AuthFinishClient() {
         {failed ? (
           <Link
             className="inline-flex rounded-full bg-primary px-6 py-3 text-sm font-semibold text-on-primary"
-            href={`/login?next=${encodeURIComponent(nextPath)}`}
+            href={restartHref}
           >
             Start sign-in again
           </Link>

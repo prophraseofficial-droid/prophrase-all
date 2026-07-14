@@ -170,7 +170,7 @@ export function SettingsClient({
       <header className="border-b border-border-subtle bg-white/90 px-4 py-4 backdrop-blur md:px-8">
         <div className="mx-auto flex max-w-6xl items-center justify-between">
           <Link className="flex items-center gap-3" href="/workspace">
-            <Image alt="ProPhrase" className="h-8 w-8 rounded-md" height={32} src="/prophrase-logo.png" width={32} />
+            <Image alt="ProPhrase" className="h-8 w-8 object-contain" height={32} src="/prophrase-logo-transparent.png" width={32} />
             <span className="text-xl font-bold">ProPhrase</span>
           </Link>
           <Link className="min-h-11 rounded-lg border border-border-subtle bg-white px-4 py-3 text-sm font-semibold" href="/workspace">Back to workspace</Link>

@@ -1,8 +1,13 @@
 # dependencies
 /node_modules
+extension/node_modules
+extension/.wxt
+extension/.output
 mobile/node_modules
 mobile/.expo
 mobile/Expo-Go-*.app/
+desktop/node_modules/
+desktop/dist/
 
 # next.js
 /.next/

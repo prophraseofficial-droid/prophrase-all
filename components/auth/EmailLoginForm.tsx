@@ -2,7 +2,10 @@
 
 import type { FormEvent } from "react";
 import { useState } from "react";
-import { getPublicAppUrl } from "@/lib/app-config";
+import {
+  getAuthCallbackUrl,
+  storeAuthRedirectContext,
+} from "@/lib/app-config";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 function ArrowRight() {
@@ -55,14 +58,12 @@ export function EmailLoginForm() {
 
     try {
       const supabase = createSupabaseBrowserClient();
-      const appUrl = getPublicAppUrl(window.location.origin);
       const nextPath = getSafeNextPath();
+      storeAuthRedirectContext(nextPath);
       const { error: signInError } = await supabase.auth.signInWithOtp({
         email: trimmedEmail,
         options: {
-          emailRedirectTo: `${appUrl}/auth/finish?next=${encodeURIComponent(
-            nextPath,
-          )}`,
+          emailRedirectTo: getAuthCallbackUrl(window.location.origin),
         },
       });
 

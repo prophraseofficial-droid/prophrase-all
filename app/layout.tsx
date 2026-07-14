@@ -3,7 +3,8 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "ProPhrase - Say it better at work.",
-  description: "Turn rough work messages into clear professional replies.",
+  description:
+    "Rewrite work messages, prepare outcome-focused communication, and continue across devices with Universal Copy.",
   applicationName: "ProPhrase",
   manifest: "/manifest.json",
   icons: {
@@ -31,7 +32,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" data-scroll-behavior="smooth">
-      <body className="min-h-screen antialiased">{children}</body>
+      <body className="min-h-screen antialiased" suppressHydrationWarning>
+        {children}
+      </body>
     </html>
   );
 }

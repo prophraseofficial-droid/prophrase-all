@@ -50,3 +50,48 @@ export function addEntitlementMonth(anchor: Date, months: number) {
   firstOfTarget.setUTCDate(Math.min(anchorDay, lastDay));
   return firstOfTarget;
 }
+
+export function resolvePaidCreditCycle(
+  account: {
+    billingInterval: "none" | "monthly" | "annual";
+    currentPeriodStart: string | null;
+    currentPeriodEnd: string | null;
+    entitlementCycleStart: string | null;
+    entitlementCycleEnd: string | null;
+  },
+  now = new Date(),
+) {
+  if (account.entitlementCycleStart && account.entitlementCycleEnd) {
+    const start = new Date(account.entitlementCycleStart);
+    const end = new Date(account.entitlementCycleEnd);
+    if (start <= now && end > now) return { start, end };
+  }
+
+  const fallbackAnchor = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+  );
+  const configuredAnchor = account.currentPeriodStart
+    ? new Date(account.currentPeriodStart)
+    : fallbackAnchor;
+  const anchor = Number.isNaN(configuredAnchor.getTime())
+    ? fallbackAnchor
+    : configuredAnchor;
+  if (account.billingInterval === "monthly") {
+    return {
+      start: anchor,
+      end: new Date(account.currentPeriodEnd ?? addEntitlementMonth(anchor, 1)),
+    };
+  }
+
+  let start = anchor;
+  let end = addEntitlementMonth(anchor, 1);
+  for (let index = 0; index < 12 && end <= now; index += 1) {
+    start = end;
+    end = addEntitlementMonth(anchor, index + 2);
+  }
+  const paidEnd = account.currentPeriodEnd
+    ? new Date(account.currentPeriodEnd)
+    : null;
+  if (paidEnd && end > paidEnd) end = paidEnd;
+  return { start, end };
+}

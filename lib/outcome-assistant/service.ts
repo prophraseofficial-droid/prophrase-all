@@ -238,6 +238,66 @@ function outcomeFailures({
   });
 }
 
+function stabilizeOutcomeResponse({
+  request,
+  response,
+  metadata,
+  failures,
+}: {
+  request: OutcomeAssistantRequest;
+  response: OutcomeAssistantResponse;
+  metadata: SemanticMetadata;
+  failures: Array<{ variant: string; failures: SemanticFailure[] }>;
+}) {
+  const failuresByVariant = new Map(
+    failures.map((entry) => [entry.variant, entry.failures]),
+  );
+  let usedConservativeFallback = false;
+
+  const variants = response.variants.map((variant) => {
+    const variantFailures = failuresByVariant.get(variant.id) ?? [];
+    if (!variantFailures.length) return variant;
+
+    const onlyMissingProtectedValues = variantFailures.every(
+      (failure) => failure.code === "protected_value_changed",
+    );
+    if (onlyMissingProtectedValues) {
+      const missingValues = metadata.protectedValues.filter(
+        (value) => !variant.message.includes(value),
+      );
+      const restoredMessage = [...missingValues, variant.message]
+        .filter(Boolean)
+        .join("\n");
+      if (!validateSemanticInvariants({
+        originalText: request.originalText,
+        outputText: restoredMessage,
+        metadata,
+      }).length) {
+        return { ...variant, message: restoredMessage };
+      }
+    }
+
+    usedConservativeFallback = true;
+    return {
+      ...variant,
+      message: request.originalText,
+      readerInterpretation:
+        "Uses your original wording because changing it could alter an important detail.",
+    };
+  });
+
+  return {
+    ...response,
+    variants,
+    globalWarnings: usedConservativeFallback
+      ? [
+          ...response.globalWarnings,
+          "One or more alternatives keep the original wording to protect important details.",
+        ].slice(0, 8)
+      : response.globalWarnings,
+  };
+}
+
 async function generateLegacyOutcome(request: OutcomeAssistantRequest) {
   const prompt = buildOutcomePrompt(request);
   const first = await generateOutcomeAssistantWithGemini({
@@ -323,19 +383,26 @@ export async function generateOutcomeAssistantResponse(
     try {
       repaired = parseV2OutcomeResponse(repair.text);
     } catch {
-      throw new OutcomeAssistantError({
-        code: "INVALID_AI_OUTPUT",
-        message: "INVALID_OUTCOME_REPAIR_SCHEMA",
-        userMessage: "ProPhrase could not reliably preserve the meaning of this message. Your text is unchanged and no credits were used.",
-      });
+      const legacy = await generateLegacyOutcome(request);
+      return { ...legacy, fallback: true };
     }
     const remaining = outcomeFailures({ request, response: repaired, metadata: promptRequest.metadata });
     if (remaining.length) {
-      throw new OutcomeAssistantError({
-        code: "INVALID_AI_OUTPUT",
-        message: `OUTCOME_VALIDATION_FAILED:${remaining.flatMap((entry) => entry.failures.map((failure) => failure.code)).join(",")}`,
-        userMessage: "ProPhrase could not reliably preserve the meaning of this message. Your text is unchanged and no credits were used.",
-      });
+      return {
+        response: postProcessResponse({
+          request,
+          response: stabilizeOutcomeResponse({
+            request,
+            response: repaired,
+            metadata: promptRequest.metadata,
+            failures: remaining,
+          }),
+        }),
+        model: repair.model,
+        promptVersion: prophrasePromptVersion,
+        repaired: true,
+        fallback: true,
+      };
     }
     return {
       response: postProcessResponse({ request, response: repaired }),

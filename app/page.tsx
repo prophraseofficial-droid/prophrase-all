@@ -49,6 +49,15 @@ const transformations = [
   },
 ];
 
+const productFeatures = [
+  { icon: "auto_awesome", title: "Rewrite in your style", copy: "Choose from 13 work-ready styles for email, Slack, Teams, Jira, WhatsApp, clients, managers, and more." },
+  { icon: "spark", title: "Outcome Assistant", copy: "Start with the result you need. Prepare balanced, safer, or firmer versions while protecting important facts." },
+  { icon: "content_copy", title: "Universal Copy", copy: "Copy on one trusted device and continue on another without sending the message to yourself." },
+  { icon: "checklist", title: "History and templates", copy: "Return to recent rewrites, continue a conversation, or start quickly from reusable workplace templates." },
+  { icon: "tune", title: "Preferences that follow you", copy: "Keep your favorite styles, recipients, goals, channel, and preferred Outcome Assistant version in sync." },
+  { icon: "business_center", title: "Available where work happens", copy: "Use ProPhrase on the web, macOS, Windows, iOS, Android, Chrome, Edge, Firefox, or through the API." },
+];
+
 const iconPaths: Record<string, React.ReactNode> = {
   edit_note: (
     <>
@@ -192,8 +201,8 @@ export default async function Home() {
             Say it better at work.
           </h1>
           <p className="mx-auto mb-10 max-w-[330px] text-lg leading-7 text-text-muted sm:max-w-2xl">
-            Turn rough updates, emails, Jira comments, and replies into clear
-            professional messages in one click.
+            Rewrite rough messages, prepare for the outcome you need, and move
+            polished work across every device with one ProPhrase account.
           </p>
           <div className="mb-8 flex flex-col items-center justify-center gap-4 md:flex-row">
             <a
@@ -203,10 +212,10 @@ export default async function Home() {
               {isAuthenticated ? "Open Workspace" : "Try ProPhrase"}
             </a>
             <a
-              href="#examples"
+              href="#features"
               className="rounded-full border border-border-subtle bg-white/50 px-10 py-4 text-sm font-semibold text-primary backdrop-blur-sm transition-colors hover:bg-surface-container"
             >
-              See example
+              Explore features
             </a>
           </div>
           <p className="mx-auto max-w-[330px] text-xs font-semibold uppercase leading-4 tracking-[0.18em] text-text-muted sm:max-w-none">
@@ -281,6 +290,40 @@ export default async function Home() {
         </section>
 
         <section
+          id="features"
+          className="mx-auto max-w-container px-5 py-16 md:px-10"
+        >
+          <div className="mx-auto mb-12 max-w-3xl text-center">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-ai-purple">
+              One communication workspace
+            </p>
+            <h2 className="text-[32px] font-semibold leading-[38px] tracking-[-0.02em] text-text-primary md:text-[40px] md:leading-[48px]">
+              More than a rewrite button.
+            </h2>
+            <p className="mt-4 text-lg leading-7 text-text-muted">
+              Decide what to say, shape how it sounds, and carry the result into
+              the app where you need it.
+            </p>
+          </div>
+          <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+            {productFeatures.map((feature) => (
+              <article
+                className="rounded-3xl border border-border-subtle bg-white p-7 shadow-sm"
+                key={feature.title}
+              >
+                <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-surface-container text-primary">
+                  <Icon className="text-2xl">{feature.icon}</Icon>
+                </div>
+                <h3 className="text-xl font-semibold text-text-primary">
+                  {feature.title}
+                </h3>
+                <p className="mt-3 leading-7 text-text-muted">{feature.copy}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section
           id="how-it-works"
           className="mx-auto max-w-container px-5 py-16 md:px-10"
         >
@@ -316,7 +359,7 @@ export default async function Home() {
                 </p>
               </div>
               <span className="rounded-full bg-ai-purple/10 px-4 py-2 text-xs font-semibold leading-4 text-ai-purple">
-                Powered by Fine-tuned Models
+                13 work-ready styles
               </span>
             </div>
             <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
@@ -376,9 +419,9 @@ export default async function Home() {
               Privacy first by design
             </h4>
             <p className="text-xs leading-relaxed text-text-muted">
-              Your messages are processed locally in your browser. We never
-              store your text on our servers or use it to train public models.
-              Purely ephemeral.
+              AI processing happens through protected server-side services, so
+              provider keys never ship to your device. Message content is kept
+              out of analytics, billing records, and public-model training.
             </p>
           </div>
         </section>
@@ -391,8 +434,8 @@ export default async function Home() {
               Communicate more clearly.
             </h2>
             <p className="mx-auto mb-10 max-w-xl text-lg leading-7 text-white/70">
-              Join thousands of professionals who use ProPhrase to save time and
-              look better at work.
+              Rewrite, plan outcomes, and continue across devices from one
+              focused communication workspace.
             </p>
             <a
               href={appHref}
@@ -408,7 +451,7 @@ export default async function Home() {
         <div className="mx-auto flex max-w-container flex-col items-center justify-between gap-8 px-5 md:flex-row md:px-10">
           <div className="flex items-center gap-3 text-2xl font-bold tracking-[-0.01em] text-primary">
             <Image
-              src="/prophrase-logo.png"
+              src="/prophrase-logo-transparent.png"
               alt=""
               width={36}
               height={40}

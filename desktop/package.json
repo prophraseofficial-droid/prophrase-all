@@ -1,0 +1,67 @@
+{
+  "name": "prophrase-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "author": "ProPhrase",
+  "description": "ProPhrase desktop app for macOS and Windows",
+  "main": "main.cjs",
+  "scripts": {
+    "dev": "cross-env PROPHRASE_APP_URL=http://localhost:3000 electron .",
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "build": "electron-builder",
+    "build:mac": "electron-builder --mac",
+    "build:win": "electron-builder --win"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "electron": "^39.2.7",
+    "electron-builder": "26.0.12"
+  },
+  "build": {
+    "appId": "in.prophrase.desktop",
+    "productName": "ProPhrase",
+    "artifactName": "ProPhrase-${version}-${os}-${arch}.${ext}",
+    "protocols": [
+      {
+        "name": "ProPhrase authentication",
+        "schemes": ["prophrase"]
+      }
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "package.json"
+    ],
+    "asar": true,
+    "compression": "maximum",
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "../public/prophrase-logo-transparent.png",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false
+    },
+    "dmg": {
+      "sign": false
+    },
+    "win": {
+      "icon": "../public/prophrase-logo-transparent.png",
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}

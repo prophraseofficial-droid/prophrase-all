@@ -54,10 +54,18 @@ WebBrowser.maybeCompleteAuthSession();
 
 const tones: Tone[] = [
   "Professional",
+  "Polite",
+  "Shorter",
   "Short & Crisp",
   "Human",
   "Email",
+  "Slack",
+  "Teams",
   "Jira Comment",
+  "WhatsApp",
+  "Client-safe",
+  "Manager-friendly",
+  "Firmer",
 ];
 
 const bugTemplate: RewriteTemplate = {
@@ -214,7 +222,7 @@ function SplashScreen() {
 function OnboardingValueProp({ onNext }: { onNext: () => void }) {
   return (
     <SafeAreaView style={styles.safe}>
-      <View style={styles.onboarding}>
+      <ScrollView contentContainerStyle={styles.onboarding}>
         <AppLogo />
         <Text style={styles.heroTitle}>Write clearly without slowing down.</Text>
         <Text style={styles.heroCopy}>
@@ -233,8 +241,20 @@ function OnboardingValueProp({ onNext }: { onNext: () => void }) {
             6.6, so we created the PR accordingly.
           </Text>
         </View>
+        <View style={styles.demoCard}>
+          <Text style={styles.label}>MORE THAN REWRITING</Text>
+          <Text style={styles.demoOutput}>
+            Outcome Assistant prepares safer, balanced, and firmer messages for
+            the result you need.
+          </Text>
+          <View style={styles.divider} />
+          <Text style={styles.demoOutput}>
+            Universal Copy moves polished text between trusted devices, while
+            history, templates, and preferences stay with your account.
+          </Text>
+        </View>
         <Button title="Continue" onPress={onNext} />
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -306,8 +326,8 @@ function OnboardingGetStarted({
         <Text style={styles.step}>Step 3 of 3</Text>
         <Text style={styles.heroTitle}>Start rewriting from your phone.</Text>
         <Text style={styles.heroCopy}>
-          Sign in with the same ProPhrase account to sync history, templates, usage,
-          and Universal Copy.
+          Sign in once to use rewriting, Outcome Assistant, Universal Copy,
+          history, templates, preferences, and usage across your devices.
         </Text>
         <GoogleButton
           disabled={authLoading !== null}
@@ -518,7 +538,15 @@ function HomeWrite({
 
   async function handleRewrite() {
     const trimmed = text.trim();
-    if (!trimmed || loading) return;
+    if (loading) return;
+    if (trimmed.length < 3) {
+      setStatus("Enter at least 3 characters.");
+      return;
+    }
+    if (trimmed.length > 5000) {
+      setStatus("Your message is over 5,000 characters. Shorten it before rewriting.");
+      return;
+    }
     if (
       planFeatureGatingEnabled &&
       !["plus", "pro", "pro_monthly", "pro_yearly"].includes(usage?.creditBalance?.plan ?? usage?.plan ?? "free") &&
@@ -621,6 +649,7 @@ function HomeWrite({
           <View style={styles.writeCard}>
             <Text style={styles.label}>ROUGH MESSAGE</Text>
             <TextInput
+              maxLength={5000}
               multiline
               onChangeText={setText}
               placeholder="Type what you want to say..."
@@ -630,7 +659,7 @@ function HomeWrite({
               value={text}
             />
             <Button
-              disabled={loading || !text.trim()}
+              disabled={loading || text.trim().length < 3}
               title={loading ? "Rewriting..." : "Rewrite"}
               onPress={handleRewrite}
             />

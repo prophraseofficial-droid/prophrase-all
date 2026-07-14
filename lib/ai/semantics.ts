@@ -32,8 +32,8 @@ const protectedPatterns = [
   /(?:^|\s)(?:\.?\.?\/|~\/|[A-Za-z]:\\)[^\s,;]+/gm,
   /\b(?:npm|pnpm|yarn|git|docker|kubectl|curl|ssh|python|node)\s+[^\n]+/gi,
 ];
-const negationPattern = /\b(?:not|no|never|cannot|can't|cant|won't|will not|isn't|is not|aren't|are not|didn't|did not|doesn't|does not|unable)\b/gi;
-const negationCheckPattern = /\b(?:not|no|never|cannot|can't|cant|won't|will not|isn't|is not|aren't|are not|didn't|did not|doesn't|does not|unable)\b/i;
+const negationPattern = /\b(?:not|no|never|cannot|can't|cant|won't|will not|isn't|is not|aren't|are not|wasn't|weren't|haven't|hasn't|hadn't|don't|doesn't|didn't|did not|wouldn't|shouldn't|couldn't|unable)\b/gi;
+const negationCheckPattern = /\b(?:not|no|never|cannot|can't|cant|won't|will not|isn't|is not|aren't|are not|wasn't|weren't|haven't|hasn't|hadn't|don't|doesn't|didn't|did not|wouldn't|shouldn't|couldn't|unable)\b/i;
 const uncertaintyPattern = /\b(?:may|might|perhaps|possibly|probably|unsure|uncertain|not sure|need to check|subject to)\b/gi;
 const conditionPattern = /\b(?:if|unless|provided that|subject to|depending on|when)\b/gi;
 const refusalPattern = /\b(?:cannot|can't|cant|won't|will not|unable|not able|decline|refuse)\b/i;

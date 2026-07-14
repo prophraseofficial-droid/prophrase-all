@@ -41,6 +41,8 @@ export function QuickStylesBar({
     try {
       const state = await patchPreferences({ rephrase: { quickStyles: styles, defaultStyle } });
       onPreferencesChange(state.preferences);
+    } catch {
+      // Preference persistence should never interrupt the writing workspace.
     } finally {
       setSaving(false);
     }
@@ -66,8 +68,8 @@ export function QuickStylesBar({
   }
 
   return (
-    <div className="sticky top-0 z-20 w-full border-b border-border-subtle bg-[#faf9f6]/95 px-4 py-3 backdrop-blur-md md:px-10 md:py-4">
-      <div className="mx-auto flex max-w-5xl items-center gap-2">
+    <div className="relative z-20 mx-auto w-full max-w-4xl px-0 py-0">
+      <div className="flex items-center gap-2">
         <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto" aria-label="Quick Styles">
           {pinned.map((id) => {
             const style = quickStyleById[id];
@@ -75,7 +77,7 @@ export function QuickStylesBar({
             return (
               <button
                 aria-pressed={selected}
-                className={selected ? "min-h-11 shrink-0 rounded-lg bg-primary px-4 text-sm font-semibold text-white" : "min-h-11 shrink-0 rounded-lg border border-border-subtle bg-white px-4 text-sm font-semibold text-text-muted hover:text-primary"}
+                className={selected ? "min-h-9 shrink-0 rounded-full bg-black px-5 text-xs font-semibold text-white" : "min-h-9 shrink-0 rounded-full border border-transparent bg-[#f3f4f5] px-5 text-xs font-semibold text-text-muted hover:bg-[#e5e7eb] hover:text-primary"}
                 disabled={disabled || saving}
                 key={id}
                 onClick={() => {
@@ -91,7 +93,7 @@ export function QuickStylesBar({
         <details className="relative shrink-0" onToggle={(event) => {
           if ((event.currentTarget as HTMLDetailsElement).open) trackPreferenceEvent("rephrase_more_opened", { source: "workspace" });
         }} ref={detailsRef}>
-          <summary className="flex min-h-11 cursor-pointer list-none items-center rounded-lg border border-border-subtle bg-white px-4 text-sm font-semibold text-primary">More</summary>
+          <summary aria-label="More styles" className="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-full text-lg font-semibold text-text-muted hover:bg-[#f3f4f5]">...</summary>
           <div className="fixed inset-x-0 bottom-0 z-50 max-h-[75dvh] overflow-y-auto rounded-t-2xl border border-border-subtle bg-white p-5 shadow-2xl md:absolute md:inset-auto md:right-0 md:top-12 md:w-80 md:rounded-lg">
             <div className="mb-4 flex items-center justify-between">
               <p className="font-semibold text-primary">All styles</p>
@@ -118,7 +120,7 @@ export function QuickStylesBar({
             })}
           </div>
         </details>
-        <Link className="hidden min-h-11 shrink-0 items-center px-2 text-sm font-semibold text-text-muted underline md:flex" href="/settings#rephrase" onClick={() => trackPreferenceEvent("rephrase_customize_opened", { source: "workspace" })}>Customize</Link>
+        <Link className="sr-only" href="/settings#rephrase" onClick={() => trackPreferenceEvent("rephrase_customize_opened", { source: "workspace" })}>Customize styles</Link>
       </div>
 
       <PreferenceDialog open={Boolean(replaceWith)} onClose={() => setReplaceWith(null)} titleId="replace-style-title">

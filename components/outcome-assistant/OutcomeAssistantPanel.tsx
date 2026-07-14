@@ -131,8 +131,8 @@ function Chip({
     <button
       className={
         selected
-          ? "rounded-full bg-primary px-3 py-2 text-xs font-semibold text-white"
-          : "rounded-full border border-border-subtle bg-white px-3 py-2 text-xs font-semibold text-text-muted transition-colors hover:bg-surface-container-low hover:text-primary"
+          ? "min-h-9 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-white"
+          : "min-h-9 rounded-full border border-border-subtle bg-white px-4 py-2 text-xs font-medium text-text-muted transition-colors hover:bg-surface-container-low hover:text-primary"
       }
       onClick={onClick}
       type="button"
@@ -144,7 +144,7 @@ function Chip({
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
-    <label className="text-sm font-semibold leading-5 text-primary">{children}</label>
+    <label className="text-[11px] font-semibold uppercase leading-4 tracking-[0.12em] text-text-muted">{children}</label>
   );
 }
 
@@ -444,13 +444,17 @@ export function OutcomeAssistantPanel({
 
   async function copyVersion(version: OutcomeVersion) {
     const message = editedMessages[version.id] ?? version.message;
-    await navigator.clipboard.writeText(message);
-    setStatus("Copied");
-    trackOutcomeEvent("outcome_variant_copied", {
-      selectedVariant: version.id,
-      outputLengthBucket: lengthBucket(message.length),
-      highestRiskSeverity: highestSeverity(version),
-    });
+    try {
+      await navigator.clipboard.writeText(message);
+      setStatus("Copied");
+      trackOutcomeEvent("outcome_variant_copied", {
+        selectedVariant: version.id,
+        outputLengthBucket: lengthBucket(message.length),
+        highestRiskSeverity: highestSeverity(version),
+      });
+    } catch {
+      setStatus("Copy failed. Select the message and copy it manually.");
+    }
   }
 
   function updateEditedMessage(id: string, value: string) {
@@ -467,68 +471,47 @@ export function OutcomeAssistantPanel({
     : [];
 
   return (
-    <div className="h-full overflow-y-auto px-4 py-6 md:px-10 md:py-10">
-      <div className="mx-auto flex max-w-5xl flex-col gap-6">
-        <header>
-          <h1 className="text-3xl font-bold tracking-[-0.02em] text-primary">
-            Prepare the right message
+    <div className="h-full overflow-y-auto px-4 py-8 md:px-10 md:py-12">
+      <div className="mx-auto flex max-w-4xl flex-col gap-6">
+        <header className="text-center">
+          <h1 className="text-3xl font-semibold text-primary md:text-[34px] md:leading-10">
+            Say it the right way
           </h1>
-          <p className="mt-2 text-sm leading-6 text-text-muted">
-            Tell ProPhrase who you are messaging and what you want to achieve.
+          <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-text-muted">
+            Tell ProPhrase what you want to say, who you are speaking to and what you need.
           </p>
-          {creditBillingEnabled && creditBalance ? (
-            <div className="mt-5 grid grid-cols-3 gap-2 rounded-lg border border-border-subtle bg-white p-3" aria-label="Outcome Assistant credit summary">
-              <div>
-                <p className="text-xs font-semibold text-text-muted">Available</p>
-                <p className="mt-1 text-lg font-semibold text-primary">{creditBalance.available}</p>
-              </div>
-              <div className="border-x border-border-subtle px-3">
-                <p className="text-xs font-semibold text-text-muted">Used this period</p>
-                <p className="mt-1 text-lg font-semibold text-primary">{usedCredits}</p>
-              </div>
-              <div className="pl-2">
-                <p className="text-xs font-semibold text-text-muted">This message</p>
-                <p className="mt-1 text-lg font-semibold text-primary">
-                  {creditEstimate ? `~${creditEstimate.creditCost}` : "–"}
-                </p>
-              </div>
-            </div>
-          ) : null}
         </header>
 
-        <section className="rounded-3xl border border-border-subtle bg-white p-5 shadow-sm md:p-6">
-          <div className="grid gap-5">
+        <section className="rounded-3xl border border-border-subtle bg-white p-5 shadow-sm md:p-10">
+          <div className="grid gap-7">
             <div className="grid gap-2">
               <FieldLabel>What do you want to say?</FieldLabel>
+              <div className="relative">
               <textarea
                 aria-describedby="outcome-character-count"
-                className="min-h-40 resize-y rounded-2xl border border-border-subtle bg-surface px-4 py-3 text-base leading-6 text-primary outline-none transition-colors focus:border-accent-warm"
+                className="min-h-40 w-full resize-y rounded-xl border border-border-subtle bg-surface-container-low px-5 py-4 pb-9 text-base leading-6 text-primary outline-none transition-colors focus:border-primary"
                 maxLength={hardMaxCharacters + 1}
                 onChange={(event) => setOriginalText(event.target.value)}
-                placeholder="Type or speak naturally. ProPhrase will help you make the message clear and appropriate."
+                placeholder="Draft your thought or intent here..."
                 value={originalText}
               />
-              <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="absolute bottom-4 right-4 flex items-center gap-3">
                 <p
                   className={
                     originalText.length > hardMaxCharacters
-                      ? "text-sm font-semibold text-red-700"
+                      ? "text-xs font-semibold text-red-700"
                       : originalText.length > recommendedMaxCharacters
-                        ? "text-sm font-semibold text-amber-700"
-                        : "text-sm text-text-muted"
+                        ? "text-xs font-semibold text-amber-700"
+                        : "text-xs text-text-muted"
                   }
                   id="outcome-character-count"
                 >
-                  {originalText.length}/{hardMaxCharacters} characters
-                  {originalText.length > recommendedMaxCharacters &&
-                  originalText.length <= hardMaxCharacters
-                    ? " - longer messages may be harder to verify."
-                    : ""}
+                  {originalText.length} / {hardMaxCharacters}
                 </p>
-                <div className="flex gap-2">
+                <div className="hidden gap-2 sm:flex">
                   {voiceStatus === "recording" ? (
                     <button
-                      className="rounded-full border border-border-subtle px-4 py-2 text-sm font-semibold text-primary"
+                      className="rounded-full border border-border-subtle bg-white px-3 py-1.5 text-xs font-semibold text-primary"
                       onClick={stopVoiceInput}
                       type="button"
                     >
@@ -536,7 +519,7 @@ export function OutcomeAssistantPanel({
                     </button>
                   ) : (
                     <button
-                      className="rounded-full border border-border-subtle px-4 py-2 text-sm font-semibold text-primary"
+                      className="rounded-full border border-border-subtle bg-white px-3 py-1.5 text-xs font-semibold text-primary"
                       onClick={startVoiceInput}
                       type="button"
                     >
@@ -545,9 +528,10 @@ export function OutcomeAssistantPanel({
                   )}
                 </div>
               </div>
+              </div>
             </div>
 
-            <div className="grid gap-5 md:grid-cols-2">
+            <div className="grid gap-7">
               <div className="grid gap-3">
                 <FieldLabel>Who are you sending this to?</FieldLabel>
                 <div className="flex flex-wrap gap-2">
@@ -564,7 +548,7 @@ export function OutcomeAssistantPanel({
                     </Chip>
                   ))}
                   <details className="relative">
-                    <summary className="flex min-h-9 cursor-pointer list-none items-center rounded-full border border-border-subtle bg-white px-3 text-xs font-semibold text-primary" onClick={() => trackPreferenceEvent("outcome_more_recipient_opened", { source: "workspace" })}>More</summary>
+                    <summary className="flex min-h-9 cursor-pointer list-none items-center rounded-full border border-dashed border-border-subtle bg-white px-4 text-xs font-semibold text-text-muted" onClick={() => trackPreferenceEvent("outcome_more_recipient_opened", { source: "workspace" })}>More</summary>
                     <div className="fixed inset-x-0 bottom-0 z-50 max-h-[70dvh] overflow-y-auto rounded-t-2xl border border-border-subtle bg-white p-4 shadow-2xl md:absolute md:inset-auto md:left-0 md:top-11 md:w-72 md:rounded-lg">
                       <label className="grid gap-2 text-xs font-semibold text-text-muted">Find recipient<input className="min-h-11 rounded-lg border border-border-subtle px-3 text-sm text-primary" onChange={(event) => setRecipientSearch(event.target.value)} placeholder="Search recipients" value={recipientSearch} /></label>
                       <div className="mt-3 grid gap-1">{searchedRecipients.map((option) => <button className="min-h-11 rounded-lg px-3 text-left text-sm font-semibold hover:bg-surface-container-low" key={option} onClick={(event) => { setRecipient(option); (event.currentTarget.closest("details") as HTMLDetailsElement | null)?.removeAttribute("open"); }} type="button">{recipientLabels[option]}</button>)}</div>
@@ -598,7 +582,7 @@ export function OutcomeAssistantPanel({
                     </Chip>
                   ))}
                   <details className="relative">
-                    <summary className="flex min-h-9 cursor-pointer list-none items-center rounded-full border border-border-subtle bg-white px-3 text-xs font-semibold text-primary" onClick={() => trackPreferenceEvent("outcome_more_intent_opened", { source: "workspace" })}>More</summary>
+                    <summary className="flex min-h-9 cursor-pointer list-none items-center rounded-full border border-dashed border-border-subtle bg-white px-4 text-xs font-semibold text-text-muted" onClick={() => trackPreferenceEvent("outcome_more_intent_opened", { source: "workspace" })}>More</summary>
                     <div className="fixed inset-x-0 bottom-0 z-50 max-h-[70dvh] overflow-y-auto rounded-t-2xl border border-border-subtle bg-white p-4 shadow-2xl md:absolute md:inset-auto md:right-0 md:top-11 md:w-80 md:rounded-lg">
                       <label className="grid gap-2 text-xs font-semibold text-text-muted">Find goal<input className="min-h-11 rounded-lg border border-border-subtle px-3 text-sm text-primary" onChange={(event) => setIntentSearch(event.target.value)} placeholder="Search goals" value={intentSearch} /></label>
                       <div className="mt-3 grid gap-1">{searchedIntents.map((option) => <button className="min-h-11 rounded-lg px-3 text-left text-sm font-semibold hover:bg-surface-container-low" key={option} onClick={(event) => { setIntent(option); (event.currentTarget.closest("details") as HTMLDetailsElement | null)?.removeAttribute("open"); }} type="button">{intentLabels[option]}</button>)}</div>
@@ -617,7 +601,7 @@ export function OutcomeAssistantPanel({
               </div>
             </div>
 
-            <div className="rounded-2xl border border-border-subtle bg-surface-container-low p-4">
+            <div className={contextOpen ? "order-5 rounded-xl border border-border-subtle bg-surface-container-low p-4" : "hidden"}>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <FieldLabel>Protect important details</FieldLabel>
@@ -682,14 +666,14 @@ export function OutcomeAssistantPanel({
             </div>
 
             <button
-              className="rounded-2xl border border-border-subtle px-4 py-3 text-left text-sm font-semibold text-primary"
+              className="order-4 flex min-h-14 items-center justify-between rounded-xl border border-border-subtle bg-surface-container-low px-5 py-3 text-left text-sm font-semibold text-primary"
               onClick={() => setContextOpen((open) => !open)}
               type="button"
             >
-              Add context {contextOpen ? "−" : "+"}
+              <span>Add helpful details</span><span aria-hidden="true">{contextOpen ? "−" : "+"}</span>
             </button>
             {contextOpen ? (
-              <div className="grid gap-4 rounded-2xl border border-border-subtle bg-surface p-4 md:grid-cols-2">
+              <div className="order-6 grid gap-4 rounded-xl border border-border-subtle bg-surface p-4 md:grid-cols-2">
                 <label className="grid gap-2">
                   <span className="text-sm font-semibold text-primary">
                     Relationship level
@@ -780,26 +764,38 @@ export function OutcomeAssistantPanel({
             ) : null}
 
             {error ? (
-              <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              <p className="order-7 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                 {error}
               </p>
             ) : null}
             {status ? (
-              <p aria-live="polite" className="text-sm font-semibold text-text-muted">
+              <p aria-live="polite" className="order-7 text-center text-sm font-semibold text-text-muted">
                 {status}
               </p>
             ) : null}
 
             <button
-              className="rounded-2xl bg-primary px-5 py-4 text-sm font-semibold text-white transition-opacity disabled:cursor-wait disabled:opacity-60"
+              className="order-8 mx-auto flex min-h-14 w-full max-w-sm items-center justify-center gap-2 rounded-full bg-primary px-8 py-4 text-sm font-semibold text-white shadow-lg transition-all hover:scale-[1.01] disabled:cursor-wait disabled:opacity-60"
               disabled={loading}
               onClick={() => void generate()}
               type="button"
             >
-              {loading ? loadingLabel : "Prepare my message"}
+              {loading ? loadingLabel : "Prepare my message"}<span aria-hidden="true">✦</span>
             </button>
+            <p className="order-9 text-center text-[11px] text-text-muted">Powered by ProPhrase Intelligence</p>
           </div>
         </section>
+
+        <div className="grid gap-4 pb-6 md:grid-cols-3">
+          <div className="flex items-center gap-4 rounded-2xl border border-border-subtle bg-white p-5 shadow-sm md:col-span-2">
+            <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-[#fff3d6] text-xl">✦</span>
+            <div><p className="text-sm font-bold text-primary">Pro-Tip: Context matters</p><p className="mt-1 text-sm leading-5 text-text-muted">Including a project name or deadline helps ProPhrase provide a more precise message.</p></div>
+          </div>
+          <div className="flex flex-col items-center justify-center rounded-2xl border border-border-subtle bg-white p-5 text-center shadow-sm">
+            <span className="text-2xl font-bold text-primary">{creditBillingEnabled && creditBalance ? creditBalance.available : response ? response.variants.length : "Ready"}</span>
+            <span className="mt-1 text-xs text-text-muted">{creditBillingEnabled && creditBalance ? `${usedCredits} used${creditEstimate ? ` · ~${creditEstimate.creditCost} next` : ""}` : "Message assistant"}</span>
+          </div>
+        </div>
 
         {response ? (
           <section className="grid gap-5">
