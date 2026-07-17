@@ -8,6 +8,11 @@ import {
   normalizeForCreditCount,
 } from "../lib/billing/credits.ts";
 import { getPlanCatalog } from "../lib/billing/catalog.ts";
+import {
+  providerCancellationMode,
+  replacementDescendantIds,
+  replacementRelatedIds,
+} from "../lib/billing/cancellation.ts";
 import { formatInrFromPaise } from "../lib/billing/format.ts";
 import { addEntitlementMonth, freeCreditPeriod } from "../lib/billing/dates.ts";
 import {
@@ -27,8 +32,12 @@ import {
   buildRazorpayPlanUpdate,
   planChangeChargePolicy,
   planChangeCreditCycle,
+  planChangeExecution,
+  providerSupportsPlanUpdate,
   razorpayScheduleForPlanChange,
   remainingBillingCycles,
+  replacementPlanChangeTiming,
+  replacementUpgradeAmountPaise,
   shouldApplySubscriptionUpdate,
   type PaidPlanSelection,
 } from "../lib/billing/plan-change.ts";
@@ -73,6 +82,32 @@ test("catalog contains the fixed commercial model and configurable Free allowanc
   assert.equal(getPlanCatalog({ FREE_DAILY_CREDITS: "20" }).free.dailyCredits, 20);
   assert.throws(() => getPlanCatalog({ FREE_DAILY_CREDITS: "21" }));
   assert.match(formatInrFromPaise(199900), /1,999/);
+});
+
+test("cancels only active Razorpay subscriptions at cycle end", () => {
+  assert.equal(providerCancellationMode("active"), "cycle_end");
+  assert.equal(providerCancellationMode("authenticated"), "immediate");
+  assert.equal(providerCancellationMode("created"), "immediate");
+  assert.equal(providerCancellationMode("cancelled"), "none");
+  assert.equal(providerCancellationMode("completed"), "none");
+});
+
+test("finds every pending replacement below the current subscription", () => {
+  const rows = [
+    { id: "old", migration_source: null },
+    { id: "current", migration_source: "replacement:old" },
+    { id: "pending", migration_source: "replacement:current" },
+    { id: "pending-child", migration_source: "replacement:pending" },
+    { id: "unrelated", migration_source: "replacement:someone-else" },
+  ];
+  assert.deepEqual(
+    replacementDescendantIds(rows, "current"),
+    ["pending", "pending-child"],
+  );
+  assert.deepEqual(
+    new Set(replacementRelatedIds(rows, "current")),
+    new Set(["old", "current", "pending", "pending-child"]),
+  );
 });
 
 test("catalog gates paid features without weakening safety features", () => {
@@ -233,6 +268,57 @@ test("maps plan transitions to Razorpay charging and scheduling policy", () => {
       customer_notify: true,
     },
   );
+});
+
+test("routes unsupported Razorpay mandates through reauthorization checkout", () => {
+  for (const method of ["upi", "emandate", "emandate_v2", "nach", null, undefined]) {
+    assert.equal(providerSupportsPlanUpdate(method), false, String(method));
+    assert.equal(planChangeExecution(method), "replacement_checkout", String(method));
+  }
+  for (const method of ["card", "netbanking"]) {
+    assert.equal(providerSupportsPlanUpdate(method), true, method);
+    assert.equal(planChangeExecution(method), "native_update", method);
+  }
+});
+
+test("covers all replacement-checkout plan paths without immediate downgrades", () => {
+  const selections: PaidPlanSelection[] = [
+    { plan: "plus", interval: "monthly" },
+    { plan: "plus", interval: "annual" },
+    { plan: "pro", interval: "monthly" },
+    { plan: "pro", interval: "annual" },
+  ];
+  for (const current of selections) {
+    for (const target of selections) {
+      const timing = replacementPlanChangeTiming(current, target);
+      if (current.plan === target.plan && current.interval === target.interval) {
+        assert.equal(timing, "unchanged");
+      } else if (current.plan === "plus" && target.plan === "pro") {
+        assert.equal(timing, "immediate");
+      } else {
+        assert.equal(timing, "cycle_end");
+      }
+    }
+  }
+});
+
+test("calculates only the unused-period tier difference for replacement upgrades", () => {
+  const periodStart = new Date("2026-07-01T00:00:00.000Z");
+  const periodEnd = new Date("2026-08-01T00:00:00.000Z");
+  assert.equal(replacementUpgradeAmountPaise({
+    current: { plan: "plus", interval: "monthly" },
+    target: { plan: "pro", interval: "monthly" },
+    periodStart,
+    periodEnd,
+    now: new Date("2026-07-16T12:00:00.000Z"),
+  }), 7500);
+  assert.equal(replacementUpgradeAmountPaise({
+    current: { plan: "pro", interval: "monthly" },
+    target: { plan: "plus", interval: "monthly" },
+    periodStart,
+    periodEnd,
+    now: new Date("2026-07-16T12:00:00.000Z"),
+  }), 0);
 });
 
 test("does not apply scheduled subscription updates before cycle end", () => {

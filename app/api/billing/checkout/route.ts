@@ -15,6 +15,69 @@ import {
 import { getUserPlan } from "@/lib/usage/usage";
 import { getBillingAccount } from "@/lib/billing/account";
 
+function razorpayCustomerName(value: unknown) {
+  if (typeof value !== "string") return undefined;
+  const name = value.trim().slice(0, 50);
+  if (name.length < 3 || !/^[A-Za-z0-9][A-Za-z0-9 .,'_()@/-]*[A-Za-z0-9.)]$/.test(name)) {
+    return undefined;
+  }
+  return name;
+}
+
+function checkoutErrorDetails(error: unknown) {
+  if (error instanceof Error) {
+    return { category: error.name, code: null, description: error.message.slice(0, 180) };
+  }
+  if (!error || typeof error !== "object") {
+    return { category: typeof error, code: null, description: null };
+  }
+  const record = error as Record<string, unknown>;
+  const nested = record.error && typeof record.error === "object"
+    ? record.error as Record<string, unknown>
+    : record;
+  return {
+    category: typeof nested.code === "string" ? "provider" : "unknown_object",
+    code: typeof nested.code === "string" ? nested.code : null,
+    description: typeof nested.description === "string"
+      ? nested.description.slice(0, 180)
+      : typeof nested.message === "string" ? nested.message.slice(0, 180) : null,
+  };
+}
+
+function isExistingRazorpayCustomerError(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const record = error as Record<string, unknown>;
+  const nested = record.error && typeof record.error === "object"
+    ? record.error as Record<string, unknown>
+    : record;
+  return nested.code === "BAD_REQUEST_ERROR"
+    && typeof nested.description === "string"
+    && nested.description.toLowerCase().includes("customer already exists");
+}
+
+async function findRazorpayCustomerByEmail(
+  razorpay: ReturnType<typeof getRazorpayClient>,
+  email: string,
+) {
+  const normalizedEmail = email.trim().toLowerCase();
+  const pageSize = 100;
+
+  // Razorpay's customer list endpoint does not support email filtering. This
+  // recovery path is used only when customer creation reports a duplicate;
+  // once found, the id is persisted locally and subsequent checkouts skip it.
+  for (let skip = 0; skip < 5_000; skip += pageSize) {
+    const page = await razorpay.customers.all({ count: pageSize, skip });
+    const match = page.items.find((customer) =>
+      typeof customer.email === "string"
+      && customer.email.trim().toLowerCase() === normalizedEmail
+    );
+    if (match) return match;
+    if (page.items.length < pageSize) break;
+  }
+
+  return null;
+}
+
 export async function POST(request: Request) {
   const csrfResponse = requireTrustedMutation(request);
   if (csrfResponse) return csrfResponse;
@@ -77,9 +140,13 @@ export async function POST(request: Request) {
     return apiError("PAYMENT_PROCESSING", "Checkout is already being prepared.", 409);
   }
 
+  let pendingId: string | null = null;
+  let providerSubscriptionId: string | null = null;
+  let failureStage = "load_profile";
   try {
     const profile = await getUserPlan(user.id);
-    const pendingId = crypto.randomUUID();
+    pendingId = crypto.randomUUID();
+    failureStage = "persist_pending_checkout";
     const { error: pendingError } = await supabase.from("subscriptions").insert({
       id: pendingId,
       user_id: user.id,
@@ -97,13 +164,33 @@ export async function POST(request: Request) {
     const razorpay = getRazorpayClient();
     let customerId = profile.razorpay_customer_id;
     if (!customerId) {
-      const customer = await razorpay.customers.create({
-        name: profile.full_name ?? user.user_metadata?.name ?? undefined,
-        email: profile.email ?? user.email ?? undefined,
-      });
+      failureStage = "create_customer";
+      const customerEmail = profile.email ?? user.email;
+      if (!customerEmail) throw new Error("CUSTOMER_EMAIL_REQUIRED");
+      let customer;
+      try {
+        customer = await razorpay.customers.create({
+          name: razorpayCustomerName(profile.full_name ?? user.user_metadata?.name),
+          email: customerEmail,
+          // Razorpay returns the existing customer only when every supplied
+          // detail matches. A changed display name can still raise a duplicate.
+          fail_existing: 0,
+        });
+      } catch (error) {
+        if (!isExistingRazorpayCustomerError(error)) throw error;
+        failureStage = "recover_customer";
+        customer = await findRazorpayCustomerByEmail(razorpay, customerEmail);
+        if (!customer) throw error;
+      }
       customerId = customer.id;
-      await supabase.from("profiles").update({ razorpay_customer_id: customerId }).eq("id", user.id);
+      failureStage = "persist_customer";
+      const { error: customerUpdateError } = await supabase
+        .from("profiles")
+        .update({ razorpay_customer_id: customerId })
+        .eq("id", user.id);
+      if (customerUpdateError) throw customerUpdateError;
     }
+    failureStage = "create_subscription";
     const subscription = await razorpay.subscriptions.create({
       plan_id: definition.razorpayPlanId,
       customer_notify: 1,
@@ -115,11 +202,14 @@ export async function POST(request: Request) {
         environment: process.env.APP_ENV || process.env.VERCEL_ENV || "development",
       },
     });
-    await supabase.from("subscriptions").update({
+    providerSubscriptionId = subscription.id;
+    failureStage = "persist_subscription";
+    const { error: subscriptionUpdateError } = await supabase.from("subscriptions").update({
       razorpay_customer_id: customerId,
       razorpay_subscription_id: subscription.id,
       status: subscription.status ?? "created",
     }).eq("id", pendingId);
+    if (subscriptionUpdateError) throw subscriptionUpdateError;
 
     return NextResponse.json({
       subscriptionId: subscription.id,
@@ -131,10 +221,26 @@ export async function POST(request: Request) {
       user: { name: profile.full_name ?? "", email: profile.email ?? user.email ?? "" },
     });
   } catch (error) {
+    const details = checkoutErrorDetails(error);
+    if (pendingId && !providerSubscriptionId) {
+      const { error: cleanupError } = await supabase.from("subscriptions").delete()
+        .eq("id", pendingId)
+        .eq("internal_status", "pending")
+        .is("razorpay_subscription_id", null);
+      if (cleanupError) {
+        console.error("[billing] Failed to clean pending checkout", {
+          pendingId,
+          category: cleanupError.code ?? "database",
+          description: cleanupError.message,
+        });
+      }
+    }
     console.error("[billing] Checkout creation failed", {
       plan: parsed.data.plan,
       interval: parsed.data.interval,
-      category: error instanceof Error ? error.name : "unknown",
+      stage: failureStage,
+      providerSubscriptionCreated: Boolean(providerSubscriptionId),
+      ...details,
     });
     return apiError("CHECKOUT_FAILED", "Unable to start checkout. Please try again.", 500);
   }

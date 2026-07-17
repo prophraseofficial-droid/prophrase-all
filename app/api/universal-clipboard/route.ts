@@ -17,6 +17,7 @@ import {
 
 const metadataSelect =
   "id, source_device_id, source_device_label, preview, status, claimed_by_device_id, claimed_by_device_label, claimed_at, expires_at, created_at";
+const universalClipboardTtlMs = 5 * 60 * 1000;
 
 export async function GET(request: Request) {
   const { user, response } = await requireUser(request);
@@ -80,9 +81,9 @@ export async function POST(request: Request) {
 
   try {
     const supabase = createSupabaseAdminClient();
-    const expiresAt = new Date(
-      Date.now() + parsed.data.expiresInSeconds * 1000,
-    ).toISOString();
+    // The server owns the lifetime so outdated or modified clients cannot
+    // leave clipboard contents available beyond the five-minute window.
+    const expiresAt = new Date(Date.now() + universalClipboardTtlMs).toISOString();
 
     await registerDevice({
       supabase,

@@ -149,6 +149,12 @@ export default async function Home() {
   const user = await getCurrentUser();
   const isAuthenticated = Boolean(user);
   const appHref = isAuthenticated ? "/workspace" : "/login";
+  const userEmail = user?.email ?? "";
+  const userName =
+    (typeof user?.user_metadata?.full_name === "string" && user.user_metadata.full_name) ||
+    (typeof user?.user_metadata?.name === "string" && user.user_metadata.name) ||
+    userEmail.split("@")[0] ||
+    "";
 
   return (
     <main className="landing-page" id="top">
@@ -157,6 +163,8 @@ export default async function Home() {
         appHref={appHref}
         fromHomePage
         isAuthenticated={isAuthenticated}
+        userEmail={userEmail}
+        userName={userName}
       />
 
       <section className="landing-hero" id="product">

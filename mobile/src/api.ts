@@ -202,7 +202,7 @@ export async function createUniversalCopy({
       deviceId,
       deviceLabel,
       text,
-      expiresInSeconds: 600,
+      expiresInSeconds: 300,
     },
   });
 }

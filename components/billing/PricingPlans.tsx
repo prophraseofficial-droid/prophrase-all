@@ -74,10 +74,12 @@ export function PricingPlans({
             const current = plan.id === "free"
               ? currentPlan === "free"
               : currentPlan === plan.id && currentBillingInterval === interval;
+            const proToPlus = currentPlan === "pro" && plan.id === "plus";
 
             return (
               <article
                 className={`pricing-plan-card pricing-plan-card-${plan.id}${current ? " is-current" : ""}`}
+                id={`plan-${plan.id}`}
                 key={plan.id}
               >
                 <div className="pricing-plan-heading">
@@ -121,11 +123,13 @@ export function PricingPlans({
                   interval={paid ? interval : "none"}
                   plan={paidPlan}
                 >
-                  {paid ? `Choose ${plan.publicName}` : "Start free"}
+                  {paid ? proToPlus ? "Schedule Plus" : `Choose ${plan.publicName}` : "Start free"}
                 </PricingActionButton>
                 <p className="pricing-plan-fineprint">
-                  {paid && currentPlan !== "free" && !current
-                    ? "Upgrades are prorated now. Downgrades start at renewal."
+                  {proToPlus
+                    ? `${plan.monthlyCredits?.toLocaleString("en-IN")} credits refresh monthly. Starts at renewal; UPI/eMandate uses a refundable ₹5 mandate check.`
+                    : paid && currentPlan !== "free" && !current
+                      ? "Upgrades are prorated now. Other changes start at renewal. UPI/eMandate may use a refundable ₹5 mandate check."
                     : "Longer messages use more credits."}
                 </p>
               </article>

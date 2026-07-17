@@ -22,6 +22,7 @@ type ProfileBillingRow = {
 
 type SubscriptionBillingRow = {
   id: string;
+  razorpay_subscription_id: string | null;
   plan_id: PlanId;
   billing_interval: BillingInterval;
   internal_status: SubscriptionStatus;
@@ -80,7 +81,7 @@ export async function getBillingAccount(userId: string) {
       .single(),
     supabase
       .from("subscriptions")
-      .select("id, plan_id, billing_interval, internal_status, current_period_start, current_period_end, entitlement_cycle_start, entitlement_cycle_end, cancel_at_period_end, pending_plan_id, pending_billing_interval, plan_change_effective_at, created_at")
+      .select("id, razorpay_subscription_id, plan_id, billing_interval, internal_status, current_period_start, current_period_end, entitlement_cycle_start, entitlement_cycle_end, cancel_at_period_end, pending_plan_id, pending_billing_interval, plan_change_effective_at, created_at")
       .eq("user_id", userId)
       .in("internal_status", ["active", "grace_period", "past_due", "canceled"])
       .order("updated_at", { ascending: false })
@@ -92,6 +93,10 @@ export async function getBillingAccount(userId: string) {
   }
   const profile = profileResult.data as ProfileBillingRow;
   const subscription = subscriptionResult.data as SubscriptionBillingRow | null;
+  const pendingPlan =
+    subscription?.pending_plan_id === "plus" || subscription?.pending_plan_id === "pro"
+      ? subscription.pending_plan_id
+      : null;
   const paidPeriodElapsed = Boolean(
     subscription?.current_period_end &&
       new Date(subscription.current_period_end).getTime() <= Date.now(),
@@ -128,13 +133,14 @@ export async function getBillingAccount(userId: string) {
       null,
     currentPeriodEnd:
       subscription?.current_period_end ?? profile.current_period_end ?? null,
+    subscriptionStartedAt: subscription?.created_at ?? null,
     entitlementCycleStart: subscription?.entitlement_cycle_start ?? null,
     entitlementCycleEnd: subscription?.entitlement_cycle_end ?? null,
     cancelAtPeriodEnd: subscription?.cancel_at_period_end ?? false,
-    pendingPlan:
-      subscription?.pending_plan_id === "plus" || subscription?.pending_plan_id === "pro"
-        ? subscription.pending_plan_id
-        : null,
+    pendingPlan,
+    pendingPlanCredits: pendingPlan
+      ? getPlanDefinition(pendingPlan).monthlyCredits
+      : null,
     pendingBillingInterval:
       subscription?.pending_billing_interval === "monthly" ||
       subscription?.pending_billing_interval === "annual"
@@ -142,6 +148,7 @@ export async function getBillingAccount(userId: string) {
         : null,
     planChangeEffectiveAt: subscription?.plan_change_effective_at ?? null,
     subscriptionId: subscription?.id ?? null,
+    providerSubscriptionId: subscription?.razorpay_subscription_id ?? null,
   };
 }
 

@@ -88,8 +88,44 @@ export function PricingActionButton({
         const changeData = await changeResponse.json() as {
           message?: string;
           immediate?: boolean;
+          requiresCheckout?: boolean;
+          subscriptionId?: string;
+          razorpayKeyId?: string;
+          user?: { name?: string; email?: string };
         };
         if (!changeResponse.ok) throw new Error(changeData.message || "Unable to change plan.");
+        if (changeData.requiresCheckout) {
+          if (!changeData.subscriptionId || !changeData.razorpayKeyId) {
+            throw new Error("Razorpay authorization details are incomplete.");
+          }
+          if (!(await loadRazorpayScript()) || !window.Razorpay) {
+            throw new Error("Unable to load Razorpay Checkout.");
+          }
+          new window.Razorpay({
+            key: changeData.razorpayKeyId,
+            subscription_id: changeData.subscriptionId,
+            name: "ProPhrase",
+            description: `Authorize ${plan === "plus" ? "Plus" : "Pro"} ${interval === "annual" ? "Annual" : "Monthly"} · refundable ₹5 mandate check`,
+            prefill: changeData.user,
+            theme: { color: "#111111" },
+            handler: async (paymentResponse) => {
+              const verifyResponse = await fetch("/api/billing/verify-payment", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(paymentResponse),
+              });
+              trackBillingEvent(verifyResponse.ok ? "checkout_completed" : "checkout_failed", {
+                selectedPlan: plan,
+                billingInterval: interval,
+                paymentStatusCategory: verifyResponse.ok ? "verified" : "processing",
+              });
+              window.location.href = verifyResponse.ok
+                ? "/account/billing?plan_change=processing"
+                : "/account/billing?checkout=processing";
+            },
+          }).open();
+          return;
+        }
         window.location.href = changeData.immediate
           ? "/account/billing?plan_change=processing"
           : "/account/billing?plan_change=scheduled";

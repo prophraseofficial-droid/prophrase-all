@@ -3,6 +3,7 @@ import { verifyRazorpaySubscriptionPaymentSignature } from "@/lib/billing/razorp
 import { getRazorpayClient } from "@/lib/billing/razorpay";
 import { planFromProviderPriceId } from "@/lib/billing/plans";
 import { applyVerifiedSubscriptionEvent } from "@/lib/billing/subscriptions";
+import { finalizeReplacementSubscription } from "@/lib/billing/replacement-subscription";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { requireTrustedMutation, requireUser } from "@/lib/security/auth";
 import { checkRateLimit } from "@/lib/security/rateLimit";
@@ -79,6 +80,24 @@ export async function POST(request: Request) {
     if (!["active", "authenticated"].includes(providerSubscription.status ?? "")) {
       return NextResponse.json({ ok: true, processing: true, plan, interval }, { status: 202 });
     }
+    const replacementResult = await finalizeReplacementSubscription({
+      userId: user.id,
+      providerSubscriptionId: parsed.data.razorpay_subscription_id,
+      providerPaymentId: parsed.data.razorpay_payment_id,
+      providerCustomerId: providerSubscription.customer_id ?? subscription.razorpay_customer_id,
+      providerPriceId: providerSubscription.plan_id ?? subscription.provider_price_id,
+      providerCurrentEnd: providerSubscription.current_end
+        ? new Date(providerSubscription.current_end * 1000) : null,
+    });
+    if (replacementResult.replacement) {
+      return NextResponse.json({
+        ok: true,
+        replacement: true,
+        immediate: replacementResult.timing === "immediate",
+        plan,
+        interval,
+      });
+    }
     await applyVerifiedSubscriptionEvent({
       providerEventId: `client-verified:${parsed.data.razorpay_payment_id}`,
       eventType: "subscription.activated",
@@ -97,7 +116,11 @@ export async function POST(request: Request) {
         ? new Date(providerSubscription.current_end * 1000) : null,
     });
     return NextResponse.json({ ok: true, plan, interval });
-  } catch {
+  } catch (error) {
+    console.error("[billing] Payment verification failed", {
+      category: error instanceof Error ? error.name : typeof error,
+      description: error instanceof Error ? error.message.slice(0, 180) : null,
+    });
     return apiError(
       "PAYMENT_VERIFICATION_FAILED",
       "Payment verification failed.",

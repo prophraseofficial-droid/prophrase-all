@@ -1,5 +1,6 @@
 import type { BillingInterval, PlanId } from "./types.ts";
 import { addEntitlementMonth } from "./dates.ts";
+import { priceForInterval } from "./catalog.ts";
 
 export type PaidPlanId = Exclude<PlanId, "free">;
 export type PaidBillingInterval = Exclude<BillingInterval, "none">;
@@ -10,6 +11,7 @@ export type PaidPlanSelection = {
 };
 
 export type PlanChangeTiming = "unchanged" | "immediate" | "cycle_end";
+export type PlanChangeExecution = "native_update" | "replacement_checkout";
 
 const planRank: Record<PaidPlanId, number> = {
   plus: 1,
@@ -22,8 +24,8 @@ const planRank: Record<PaidPlanId, number> = {
  * - within one tier, monthly -> annual is an immediate upgrade;
  * - every feature-tier downgrade and annual -> monthly switch waits for renewal.
  *
- * Razorpay owns the exact proration calculation for immediate updates. ProPhrase
- * never creates a second subscription or calculates/collects the difference.
+ * Razorpay owns proration for provider subscriptions that support native updates.
+ * UPI AutoPay and eMandate subscriptions require a newly-authorized replacement.
  */
 export function classifyPlanChange(
   current: PaidPlanSelection,
@@ -38,6 +40,57 @@ export function classifyPlanChange(
   return current.interval === "monthly" && target.interval === "annual"
     ? "immediate"
     : "cycle_end";
+}
+
+export function providerSupportsPlanUpdate(paymentMethod?: string | null) {
+  if (!paymentMethod) return false;
+  return !["upi", "emandate", "nach", "emandate_v2"].includes(
+    paymentMethod.trim().toLowerCase(),
+  );
+}
+
+export function planChangeExecution(paymentMethod?: string | null): PlanChangeExecution {
+  return providerSupportsPlanUpdate(paymentMethod)
+    ? "native_update"
+    : "replacement_checkout";
+}
+
+/**
+ * An unsupported mandate must be replaced at renewal. A higher feature tier is
+ * exposed immediately after the replacement mandate is authorized; interval-only
+ * changes have no entitlement benefit and therefore wait for renewal.
+ */
+export function replacementPlanChangeTiming(
+  current: PaidPlanSelection,
+  target: PaidPlanSelection,
+): PlanChangeTiming {
+  const timing = classifyPlanChange(current, target);
+  if (timing === "unchanged") return timing;
+  return planRank[target.plan] > planRank[current.plan] ? "immediate" : "cycle_end";
+}
+
+export function replacementUpgradeAmountPaise({
+  current,
+  target,
+  periodStart,
+  periodEnd,
+  now,
+}: {
+  current: PaidPlanSelection;
+  target: PaidPlanSelection;
+  periodStart: Date;
+  periodEnd: Date;
+  now: Date;
+}) {
+  if (planRank[target.plan] <= planRank[current.plan]) return 0;
+  const totalMs = periodEnd.getTime() - periodStart.getTime();
+  const remainingMs = periodEnd.getTime() - now.getTime();
+  if (totalMs <= 0 || remainingMs <= 0) return 0;
+
+  const currentPrice = priceForInterval(current.plan, current.interval) ?? 0;
+  const targetPrice = priceForInterval(target.plan, current.interval) ?? 0;
+  const difference = Math.max(0, targetPrice - currentPrice);
+  return Math.max(0, Math.round(difference * Math.min(1, remainingMs / totalMs)));
 }
 
 export function razorpayScheduleForPlanChange(

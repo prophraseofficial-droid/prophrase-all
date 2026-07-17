@@ -36,6 +36,10 @@ export async function applyVerifiedSubscriptionEvent(event: VerifiedSubscription
     .maybeSingle();
   if (error) throw error;
   if (!subscription) throw new Error("SUBSCRIPTION_NOT_FOUND");
+  const { data: profileBilling } = await supabase.from("profiles")
+    .select("razorpay_subscription_id")
+    .eq("id", event.userId)
+    .maybeSingle();
   const previousPlan = subscription.plan_id as PlanId;
   const confirmedPlanChange =
     subscription.pending_plan_id === event.plan &&
@@ -91,21 +95,40 @@ export async function applyVerifiedSubscriptionEvent(event: VerifiedSubscription
   }).eq("id", subscription.id);
   if (updateError) throw updateError;
 
+  // Authorization is not activation. In particular, future-start replacement
+  // subscriptions remain pending until Razorpay activates them at renewal.
+  if (status === "pending") {
+    await supabase.from("billing_audit_events").insert({
+      user_id: event.userId,
+      subscription_id: subscription.id,
+      event_type: "subscription_pending",
+      provider_event_id: event.providerEventId,
+      metadata: { plan: event.plan, interval: event.interval },
+    });
+    return { handled: true, status };
+  }
+
+  const supersededTerminalEvent = (terminal || canceled) &&
+    Boolean(profileBilling?.razorpay_subscription_id) &&
+    profileBilling?.razorpay_subscription_id !== event.providerSubscriptionId;
+
   if (terminal) {
     await supabase.rpc("expire_credit_buckets", {
       p_user_id: event.userId,
       p_plan_id: event.plan,
       p_reason: status,
     });
-    await supabase.from("profiles").update({
-      plan: "free",
-      billing_interval: "none",
-      subscription_status: status,
-      cancel_at_period_end: false,
-      current_period_start: null,
-      current_period_end: null,
-    }).eq("id", event.userId);
-  } else {
+    if (!supersededTerminalEvent) {
+      await supabase.from("profiles").update({
+        plan: "free",
+        billing_interval: "none",
+        subscription_status: status,
+        cancel_at_period_end: false,
+        current_period_start: null,
+        current_period_end: null,
+      }).eq("id", event.userId);
+    }
+  } else if (!supersededTerminalEvent) {
     await supabase.from("profiles").update({
       plan: event.plan,
       billing_interval: event.interval,

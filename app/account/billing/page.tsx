@@ -11,5 +11,16 @@ export default async function BillingAccountPage() {
   const [account, balance] = await Promise.all([
     getBillingAccount(user.id), getCreditBalance(user.id),
   ]);
-  return <BillingAccountClient account={account} balance={balance} />;
+  const name =
+    user.user_metadata?.full_name ??
+    user.user_metadata?.name ??
+    user.email?.split("@")[0] ??
+    "ProPhrase user";
+  return (
+    <BillingAccountClient
+      account={account}
+      balance={balance}
+      profile={{ email: user.email ?? "", name }}
+    />
+  );
 }

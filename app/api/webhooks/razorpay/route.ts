@@ -6,6 +6,7 @@ import {
   verifyRazorpayWebhookSignature,
 } from "@/lib/billing/razorpay";
 import { applyVerifiedSubscriptionEvent } from "@/lib/billing/subscriptions";
+import { finalizeReplacementSubscription } from "@/lib/billing/replacement-subscription";
 import { shouldApplySubscriptionUpdate } from "@/lib/billing/plan-change";
 import { subscriptionStatusForEvent } from "@/lib/billing/provider-events";
 import type { BillingInterval, PlanId } from "@/lib/billing/types";
@@ -128,6 +129,25 @@ export async function POST(request: Request) {
     const userId = subscription?.user_id ?? subscriptionEntity?.notes?.internal_user_id;
     if (!userId || !isPaidPlan(plan) || !isPaidInterval(interval)) {
       throw new Error("UNKNOWN_PROVIDER_PLAN");
+    }
+
+    if (eventType === "subscription.authenticated") {
+      const replacement = await finalizeReplacementSubscription({
+        userId,
+        providerSubscriptionId,
+        providerPaymentId: paymentEntity?.id ?? null,
+        providerCustomerId: subscriptionEntity?.customer_id ?? null,
+        providerPriceId: subscriptionEntity?.plan_id ?? subscription?.provider_price_id ?? null,
+        providerCurrentEnd: unixDate(subscriptionEntity?.current_end),
+        eventCreatedAt: unixDate(payload.created_at) ?? new Date(),
+      });
+      if (replacement.replacement) {
+        await supabase.from("webhook_events").update({
+          processing_status: "processed",
+          processed_at: new Date().toISOString(),
+        }).eq("event_id", eventId);
+        return NextResponse.json({ ok: true, replacementAuthorized: true });
+      }
     }
 
     const isPartialRefund = eventType === "payment.refunded" &&

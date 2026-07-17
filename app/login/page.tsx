@@ -13,12 +13,12 @@ export default async function LoginPage() {
   }
 
   return (
-    <main className="relative flex min-h-screen overflow-hidden bg-surface">
+    <main className="login-page relative flex min-h-screen overflow-hidden bg-[#F2EAD6]">
       <div className="radial-glow pointer-events-none absolute inset-0" />
-      <div className="pointer-events-none fixed left-[-10%] top-[-10%] h-[40%] w-[40%] rounded-full bg-ai-purple/5 blur-[120px]" />
-      <div className="pointer-events-none fixed bottom-[-5%] right-[-5%] h-[30%] w-[30%] rounded-full bg-[#ffd88e]/15 blur-[100px]" />
+      <div className="pointer-events-none fixed left-[-10%] top-[-10%] h-[40%] w-[40%] rounded-full bg-[#F2EAD6] blur-[120px]" />
+      <div className="pointer-events-none fixed bottom-[-5%] right-[-5%] h-[30%] w-[30%] rounded-full bg-[#F2EAD6] blur-[100px]" />
 
-      <section className="relative hidden flex-1 flex-col justify-center overflow-hidden bg-surface-container-low/30 px-10 md:flex">
+      <section className="relative hidden flex-1 flex-col justify-center overflow-hidden bg-[#F2EAD6] px-10 md:flex">
         <div className="mx-auto max-w-[500px] space-y-8">
           <Link className="mb-16 inline-flex" href="/">
             <Image
@@ -44,12 +44,12 @@ export default async function LoginPage() {
           <div className="glass-card animate-floating mt-12 rounded-[24px] p-8 shadow-lg">
             <div className="space-y-4">
               <div className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-[#ba1a1a]" />
+                <span className="h-2 w-2 rounded-full bg-[#dfb63f]" />
                 <span className="text-xs font-semibold uppercase leading-4 text-text-muted">
                   Original
                 </span>
               </div>
-              <div className="rounded-xl bg-surface-container/50 p-4 text-base italic leading-6 text-text-muted">
+              <div className="rounded-xl bg-[#f7f1e3] p-4 text-base italic leading-6 text-text-muted">
                 &quot;Hey, can you check that thing? I need it ASAP because
                 we&apos;re late.&quot;
               </div>
@@ -69,12 +69,12 @@ export default async function LoginPage() {
                 </svg>
               </div>
               <div className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-ai-purple" />
-                <span className="text-xs font-semibold uppercase leading-4 text-ai-purple">
+                <span className="h-2 w-2 rounded-full bg-[#11110e]" />
+                <span className="text-xs font-semibold uppercase leading-4 text-[#927019]">
                   Refined by ProPhrase
                 </span>
               </div>
-              <div className="rounded-xl border border-ai-purple/10 bg-surface p-4 text-base font-medium leading-6 text-primary">
+              <div className="rounded-xl border border-[#dfb63f]/30 bg-[#fffdf8] p-4 text-base font-medium leading-6 text-primary">
                 &quot;I would appreciate your review of the project status. To
                 ensure we meet our deadline, could you provide an update at your
                 earliest convenience?&quot;
@@ -114,7 +114,7 @@ export default async function LoginPage() {
                 <div className="absolute inset-0 flex items-center">
                   <div className="w-full border-t border-border-subtle" />
                 </div>
-                <span className="relative bg-white px-4 text-xs font-semibold uppercase leading-4 tracking-[0.18em] text-text-muted">
+                <span className="relative bg-[#fffdf8] px-4 text-xs font-semibold uppercase leading-4 tracking-[0.18em] text-text-muted">
                   or
                 </span>
               </div>

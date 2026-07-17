@@ -123,7 +123,7 @@ export const universalClipboardCreateSchema = z.object({
   deviceId: deviceIdSchema,
   deviceLabel: z.string().trim().min(2).max(80),
   text: z.string().trim().min(1).max(4000),
-  expiresInSeconds: z.number().int().min(30).max(3600).default(600),
+  expiresInSeconds: z.number().int().min(30).max(3600).default(300),
   platform: z
     .enum(["web", "desktop", "android", "ios", "extension"])
     .default("web"),

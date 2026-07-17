@@ -152,6 +152,8 @@ const sidebarItems: Array<{
 
 const deviceIdStorageKey = "prophrase.device.id";
 const universalClipboardRefreshMs = 30_000;
+const universalClipboardTtlSeconds = 5 * 60;
+const rewriteRequestTimeoutMs = 50_000;
 const outcomeAssistantEnabled = isOutcomeAssistantClientEnabled();
 const preferencesFeatureEnabled = isPreferencesEnabled();
 const workspacePreferenceDefaults = recommendedPreferences();
@@ -347,7 +349,6 @@ export function WorkspaceClient() {
   const [isLoading, setIsLoading] = useState(false);
   const [processingStep, setProcessingStep] = useState("Preparing rewrite...");
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
-  const [profileOpen, setProfileOpen] = useState(false);
   const [preferences, setPreferences] = useState<UserPreferences>(workspacePreferenceDefaults);
   const [preferencesLoaded, setPreferencesLoaded] = useState(false);
   const [onboardingRequired, setOnboardingRequired] = useState(false);
@@ -363,6 +364,7 @@ export function WorkspaceClient() {
     useState<UniversalClipboardMetadata | null>(null);
   const [universalMessage, setUniversalMessage] = useState("");
   const [universalBusy, setUniversalBusy] = useState(false);
+  const [universalClock, setUniversalClock] = useState(() => Date.now());
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const mobileAccountMenuRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<InstanceType<SpeechRecognitionConstructor> | null>(
@@ -381,6 +383,20 @@ export function WorkspaceClient() {
       : "Free";
   const entitlementPlan: "free" | "plus" | "pro" = creditBalance?.plan ??
     (usage?.plan === "pro" ? "pro" : usage?.plan === "plus" || usage?.plan === "pro_monthly" || usage?.plan === "pro_yearly" ? "plus" : "free");
+  const hasPlanData = Boolean(creditBalance || usage);
+  const upgradeTarget = hasPlanData
+    ? entitlementPlan === "free"
+      ? "plus"
+      : entitlementPlan === "plus"
+        ? "pro"
+        : null
+    : null;
+  const upgradeLabel = upgradeTarget === "plus"
+    ? "Upgrade to Plus"
+    : upgradeTarget === "pro"
+      ? "Upgrade to Pro"
+      : "";
+  const upgradeHref = upgradeTarget ? `/pricing#plan-${upgradeTarget}` : "/pricing";
   const creditEstimate = useMemo(() => {
     if (!creditBillingEnabled || !inputText.trim()) return null;
     try { return estimateCreditCost("rephrase", inputText); } catch { return null; }
@@ -392,11 +408,28 @@ export function WorkspaceClient() {
     if (creditBalance.plan !== "free" && creditBalance.available / Math.max(1, creditBalance.allowance) <= 0.2) return `${creditBalance.available} of ${creditBalance.allowance} monthly credits remain.`;
     return "";
   }, [creditBalance]);
-  const canClaimUniversalItem =
+  const universalExpiresAt = universalItem
+    ? Date.parse(universalItem.expiresAt)
+    : 0;
+  const isUniversalCopyActive =
     Boolean(universalItem) &&
     universalItem?.status === "available" &&
     !universalItem.isExpired &&
+    universalExpiresAt > universalClock;
+  const canClaimUniversalItem =
+    isUniversalCopyActive &&
+    Boolean(universalItem) &&
     universalItem.sourceDeviceId !== deviceId;
+
+  useEffect(() => {
+    if (!universalExpiresAt || universalItem?.status !== "available") return;
+
+    const expiryTimer = window.setTimeout(
+      () => setUniversalClock(Date.now()),
+      Math.max(0, universalExpiresAt - Date.now()) + 50,
+    );
+    return () => window.clearTimeout(expiryTimer);
+  }, [universalExpiresAt, universalItem?.status]);
 
   async function refreshThreads() {
     try {
@@ -485,7 +518,7 @@ export function WorkspaceClient() {
           deviceId: activeDeviceId,
           deviceLabel: activeDeviceLabel,
           text: trimmedText,
-          expiresInSeconds: 600,
+          expiresInSeconds: universalClipboardTtlSeconds,
         }),
       });
       const data = (await response.json().catch(() => null)) as
@@ -499,7 +532,7 @@ export function WorkspaceClient() {
       setUniversalItem(data.item);
       await copyToLocalClipboard(
         trimmedText,
-        "Universal copy is ready for one trusted device.",
+        "Universal copy is active for five minutes on one trusted device.",
       );
     } catch (caughtError) {
       setUniversalMessage(
@@ -753,7 +786,7 @@ export function WorkspaceClient() {
   }, []);
 
   useEffect(() => {
-    if (!accountMenuOpen && !profileOpen) return;
+    if (!accountMenuOpen) return;
 
     function closeAccountMenu(event: MouseEvent) {
       if (
@@ -761,14 +794,12 @@ export function WorkspaceClient() {
         !mobileAccountMenuRef.current?.contains(event.target as Node)
       ) {
         setAccountMenuOpen(false);
-        setProfileOpen(false);
       }
     }
 
     function closeOnEscape(event: KeyboardEvent) {
       if (event.key === "Escape") {
         setAccountMenuOpen(false);
-        setProfileOpen(false);
       }
     }
 
@@ -778,7 +809,7 @@ export function WorkspaceClient() {
       document.removeEventListener("mousedown", closeAccountMenu);
       document.removeEventListener("keydown", closeOnEscape);
     };
-  }, [accountMenuOpen, profileOpen]);
+  }, [accountMenuOpen]);
 
   useEffect(() => {
     if (!isLoading) return;
@@ -832,10 +863,17 @@ export function WorkspaceClient() {
     setIsLoading(true);
     setLastInput(displayInput);
     setLastSourceText(trimmedText);
+    setOutputText("");
 
+    const abortController = new AbortController();
+    const timeout = window.setTimeout(
+      () => abortController.abort(),
+      rewriteRequestTimeoutMs,
+    );
     try {
       const response = await fetch("/api/rewrite", {
         method: "POST",
+        signal: abortController.signal,
         headers: {
           "Content-Type": "application/json",
           "Idempotency-Key": crypto.randomUUID(),
@@ -847,7 +885,7 @@ export function WorkspaceClient() {
           ...(threadId ? { threadId } : {}),
         }),
       });
-      const data = (await response.json()) as {
+      const data = (await response.json().catch(() => null)) as ({
         result?: string;
         threadId?: string;
         thread?: ThreadSummary;
@@ -855,21 +893,25 @@ export function WorkspaceClient() {
         assistantMessage?: ThreadMessage;
         usage?: UsageSummary;
         credits?: { charged: number; remaining: number; nextRefreshAt: string | null };
-      } & ApiErrorResponse;
+      } & ApiErrorResponse) | null;
 
       if (!response.ok) {
-        if (data.upgrade || ["INSUFFICIENT_CREDITS", "INPUT_LIMIT_EXCEEDED", "PLAN_UPGRADE_REQUIRED"].includes(data.error ?? "") || data.error?.includes("LIMIT")) {
+        if (data?.upgrade || ["INSUFFICIENT_CREDITS", "INPUT_LIMIT_EXCEEDED", "PLAN_UPGRADE_REQUIRED"].includes(data?.error ?? "") || data?.error?.includes("LIMIT")) {
           setUpgradeMessage(
-            data.message ||
+            data?.message ||
               "You’ve used your free rewrites for today. Compare Plus and Pro credit plans.",
           );
-          if (data.usage) setUsage(data.usage);
+          if (data?.usage) setUsage(data.usage);
           return;
         }
-        throw new Error(data.message || data.error || "Something went wrong. Please try again.");
+        throw new Error(data?.message || data?.error || "Something went wrong. Please try again.");
       }
 
-      setOutputText(data.result || "");
+      if (!data?.result?.trim()) {
+        throw new Error("ProPhrase did not return a response. Please try again.");
+      }
+
+      setOutputText(data.result);
       setThreadId(data.threadId ?? threadId);
       setUsage(data.usage ?? usage);
       if (data.credits && creditBalance) {
@@ -891,11 +933,14 @@ export function WorkspaceClient() {
       }
     } catch (caughtError) {
       setError(
-        caughtError instanceof Error
+        caughtError instanceof DOMException && caughtError.name === "AbortError"
+          ? "The rewrite took too long. Please try again."
+          : caughtError instanceof Error
           ? caughtError.message
           : "Something went wrong. Please try again.",
       );
     } finally {
+      window.clearTimeout(timeout);
       setIsLoading(false);
     }
   }
@@ -1233,7 +1278,7 @@ export function WorkspaceClient() {
               </p>
               <p className="mt-1 text-sm font-semibold leading-5 text-primary">
                 {universalItem
-                  ? universalItem.status === "available" && !universalItem.isExpired
+                  ? isUniversalCopyActive
                     ? universalItem.sourceDeviceId === deviceId
                       ? "Waiting for a device"
                       : `Ready from ${universalItem.sourceDeviceLabel}`
@@ -1245,10 +1290,11 @@ export function WorkspaceClient() {
             </div>
             <span
               className={
-                canClaimUniversalItem
-                  ? "mt-1 h-2.5 w-2.5 rounded-full bg-green-500"
+                isUniversalCopyActive
+                  ? "mt-1 h-2.5 w-2.5 animate-pulse rounded-full bg-green-500"
                   : "mt-1 h-2.5 w-2.5 rounded-full bg-border-subtle"
               }
+              title={isUniversalCopyActive ? "Universal Copy active for five minutes" : "No active Universal Copy"}
             />
           </div>
           {universalItem ? (
@@ -1323,36 +1369,13 @@ export function WorkspaceClient() {
                     </p>
                   ) : null}
                 </div>
-                <button
+                <Link
                   className="mt-2 flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-medium text-primary transition-colors hover:bg-surface-container"
-                  onClick={() => setProfileOpen((open) => !open)}
-                  type="button"
+                  href="/account/billing"
                 >
                   <Icon className="text-lg" name="user" />
-                  <span>Profile</span>
-                </button>
-                {profileOpen ? (
-                  <div className="mx-3 mb-2 rounded-xl bg-surface-container-low px-3 py-2 text-xs leading-5 text-text-muted">
-                    <div className="flex items-center justify-between gap-3">
-                      <span>Plan</span>
-                      <span className="font-semibold text-primary">{planLabel}</span>
-                    </div>
-                    {creditBillingEnabled || !usage?.isPro ? (
-                      <div className="mt-1 flex items-center justify-between gap-3">
-                        <span>Credits</span>
-                        <span className="font-semibold text-primary">
-                          {creditBalance ? `${creditBalance.available} left` : usage ? `${usage.rewriteRemaining} left` : "Loading"}
-                        </span>
-                      </div>
-                    ) : null}
-                    <Link
-                      className="mt-2 inline-flex font-semibold text-primary"
-                      href="/account/billing"
-                    >
-                      Manage plan
-                    </Link>
-                  </div>
-                ) : null}
+                  <span>Manage billing &amp; credits</span>
+                </Link>
                 <button
                   className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-medium text-primary transition-colors hover:bg-surface-container"
                   onClick={() => void signOut()}
@@ -1399,6 +1422,12 @@ export function WorkspaceClient() {
             </nav> : null}
           </div>
           <div className="flex items-center gap-2">
+            {upgradeTarget ? (
+              <Link className="workspace-upgrade-cta" href={upgradeHref}>
+                {upgradeLabel}
+                <span aria-hidden="true">→</span>
+              </Link>
+            ) : null}
             {creditBalance ? (
               <Link className="workspace-header-credit" href="/account/billing">
                 <span aria-hidden="true" />
@@ -1426,13 +1455,20 @@ export function WorkspaceClient() {
                 ProPhrase
               </span>
             </Link>
-            <button
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#ffd88e] text-sm font-bold text-[#261900]"
-              onClick={() => setAccountMenuOpen((open) => !open)}
-              type="button"
-            >
-              {userInitial}
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              {upgradeTarget ? (
+                <Link className="workspace-upgrade-cta workspace-upgrade-cta-mobile" href={upgradeHref}>
+                  {upgradeLabel}
+                </Link>
+              ) : null}
+              <button
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#ffd88e] text-sm font-bold text-[#261900]"
+                onClick={() => setAccountMenuOpen((open) => !open)}
+                type="button"
+              >
+                {userInitial}
+              </button>
+            </div>
           </div>
 
           {accountMenuOpen ? (
@@ -1463,7 +1499,7 @@ export function WorkspaceClient() {
                   className="flex-1 rounded-xl border border-border-subtle px-3 py-2 text-center text-xs font-semibold text-primary"
                   href="/account/billing"
                 >
-                  Plan
+                  Billing
                 </Link>
                 <button
                   className="flex-1 rounded-xl bg-primary px-3 py-2 text-xs font-semibold text-white"
@@ -1608,7 +1644,7 @@ export function WorkspaceClient() {
                           </div>
                           <div className="workspace-ai-message message-shadow relative max-w-[92%] overflow-hidden rounded-2xl rounded-tl-none border border-border-subtle bg-white px-4 py-3 md:max-w-[85%] md:px-6 md:py-4">
                             <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-ai-purple/5 to-transparent" />
-                            <p className="workspace-ai-copy relative z-10 whitespace-pre-wrap text-base leading-relaxed text-[#1a1c1a]">
+                            <p className="workspace-ai-copy relative z-10 whitespace-pre-wrap text-base leading-relaxed">
                               {message.content}
                             </p>
                             <div className="workspace-message-actions relative z-10 mt-4 flex flex-wrap items-center gap-3 border-t border-border-subtle pt-3">
@@ -1663,7 +1699,7 @@ export function WorkspaceClient() {
                             </span>
                           </div>
                           <div className="workspace-ai-message message-shadow max-w-[92%] rounded-2xl rounded-tl-none border border-border-subtle bg-white px-4 py-3 md:max-w-[85%] md:px-6 md:py-4">
-                            <p className="text-base leading-relaxed text-[#1a1c1a]">
+                            <p className="workspace-ai-copy text-base leading-relaxed">
                               {processingStep}
                               <span className="ml-1 inline-flex w-5 justify-between align-middle">
                                 <span className="h-1 w-1 animate-pulse rounded-full bg-text-muted" />
@@ -1703,7 +1739,7 @@ export function WorkspaceClient() {
                         </div>
                         <div className="workspace-ai-message message-shadow group relative max-w-[92%] overflow-hidden rounded-2xl rounded-tl-none border border-border-subtle bg-white px-4 py-3 md:max-w-[85%] md:px-6 md:py-4">
                           <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-ai-purple/5 to-transparent" />
-                          <p className="workspace-ai-copy relative z-10 whitespace-pre-wrap text-base leading-relaxed text-[#1a1c1a]">
+                          <p className="workspace-ai-copy relative z-10 whitespace-pre-wrap text-base leading-relaxed">
                             {isLoading ? processingStep : outputText}
                           </p>
                           {isLoading ? (
@@ -1810,9 +1846,19 @@ export function WorkspaceClient() {
                 ) : null}
 
                 {error ? (
-                  <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                    {error}
-                  </p>
+                  <div className="flex flex-col gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 sm:flex-row sm:items-center sm:justify-between">
+                    <p>{error}</p>
+                    {lastSourceText ? (
+                      <button
+                        className="shrink-0 rounded-full border border-red-300 bg-white px-4 py-2 text-xs font-semibold text-red-700 transition-colors hover:bg-red-100 disabled:cursor-wait disabled:opacity-60"
+                        disabled={isLoading}
+                        onClick={() => void rewriteMessage({ text: lastSourceText, displayInput: lastInput, clearComposer: false })}
+                        type="button"
+                      >
+                        Try again
+                      </button>
+                    ) : null}
+                  </div>
                 ) : null}
                 {upgradeMessage ? (
                   <div className="rounded-3xl border border-border-subtle bg-white p-6 shadow-lg">

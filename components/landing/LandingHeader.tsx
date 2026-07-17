@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { PublicUserMenu } from "@/components/PublicUserMenu";
 
 function Arrow() {
   return (
@@ -13,10 +14,14 @@ export function LandingHeader({
   appHref,
   isAuthenticated,
   fromHomePage = false,
+  userEmail = "",
+  userName = "",
 }: {
   appHref: string;
   isAuthenticated: boolean;
   fromHomePage?: boolean;
+  userEmail?: string;
+  userName?: string;
 }) {
   const sectionHref = (section: string) => `${fromHomePage ? "" : "/"}#${section}`;
 
@@ -52,6 +57,9 @@ export function LandingHeader({
             {isAuthenticated ? "Open Workspace" : "Start free"}
             <Arrow />
           </Link>
+          {isAuthenticated ? (
+            <PublicUserMenu userEmail={userEmail} userName={userName} />
+          ) : null}
         </div>
       </div>
     </header>
