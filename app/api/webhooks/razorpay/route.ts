@@ -6,10 +6,12 @@ import {
   verifyRazorpayWebhookSignature,
 } from "@/lib/billing/razorpay";
 import { applyVerifiedSubscriptionEvent } from "@/lib/billing/subscriptions";
+import { shouldApplySubscriptionUpdate } from "@/lib/billing/plan-change";
 import { subscriptionStatusForEvent } from "@/lib/billing/provider-events";
 import type { BillingInterval, PlanId } from "@/lib/billing/types";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { apiError } from "@/lib/security/validation";
+import { readTextBodyWithLimit } from "@/lib/security/request-body";
 
 type RazorpayWebhookPayload = {
   event?: string;
@@ -18,6 +20,7 @@ type RazorpayWebhookPayload = {
     subscription?: { entity?: {
       id?: string; customer_id?: string; plan_id?: string;
       current_start?: number; current_end?: number;
+      has_scheduled_changes?: boolean; change_scheduled_at?: number | null;
       notes?: { internal_user_id?: string };
     } };
     payment?: { entity?: {
@@ -27,7 +30,7 @@ type RazorpayWebhookPayload = {
   };
 };
 
-function unixDate(value?: number) {
+function unixDate(value?: number | null) {
   return value ? new Date(value * 1000) : null;
 }
 
@@ -40,11 +43,11 @@ function isPaidInterval(value: unknown): value is Exclude<BillingInterval, "none
 }
 
 export async function POST(request: Request) {
-  const contentLength = Number(request.headers.get("content-length") ?? 0);
-  if (contentLength > 1_000_000) {
+  const body = await readTextBodyWithLimit(request, 1_000_000);
+  if (!body.ok) {
     return apiError("VALIDATION_ERROR", "Webhook payload is too large.", 413);
   }
-  const rawBody = await request.text();
+  const rawBody = body.text;
   const signature = request.headers.get("x-razorpay-signature");
   if (!signature) {
     return apiError("WEBHOOK_VERIFICATION_FAILED", "Missing webhook signature.", 400);
@@ -98,6 +101,17 @@ export async function POST(request: Request) {
     }
     const subscriptionEntity = payload.payload?.subscription?.entity;
     const paymentEntity = payload.payload?.payment?.entity;
+    if (!shouldApplySubscriptionUpdate(eventType, subscriptionEntity?.has_scheduled_changes)) {
+      await supabase.from("webhook_events").update({
+        processing_status: "processed",
+        processed_at: new Date().toISOString(),
+      }).eq("event_id", eventId);
+      return NextResponse.json({
+        ok: true,
+        scheduledChangePending: true,
+        effectiveAt: unixDate(subscriptionEntity?.change_scheduled_at)?.toISOString() ?? null,
+      });
+    }
     const providerSubscriptionId = subscriptionEntity?.id ?? paymentEntity?.subscription_id;
     if (!providerSubscriptionId) throw new Error("SUBSCRIPTION_ID_MISSING");
     const { data: subscription, error: subscriptionError } = await supabase

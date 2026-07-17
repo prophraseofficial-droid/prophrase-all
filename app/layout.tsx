@@ -9,9 +9,9 @@ export const metadata: Metadata = {
   manifest: "/manifest.json",
   icons: {
     icon: [
-      { url: "/prophrase-app-icon-192.png", sizes: "192x192", type: "image/png" },
-      { url: "/prophrase-app-icon-512.png", sizes: "512x512", type: "image/png" },
+      { url: "/prophrase-logo-transparent.png", sizes: "1024x1024", type: "image/png" },
     ],
+    shortcut: "/prophrase-logo-transparent.png",
     apple: "/apple-touch-icon.png",
   },
   appleWebApp: {

@@ -30,6 +30,9 @@ type SubscriptionBillingRow = {
   entitlement_cycle_start: string | null;
   entitlement_cycle_end: string | null;
   cancel_at_period_end: boolean;
+  pending_plan_id: PlanId | null;
+  pending_billing_interval: BillingInterval | null;
+  plan_change_effective_at: string | null;
   created_at: string;
 };
 
@@ -77,7 +80,7 @@ export async function getBillingAccount(userId: string) {
       .single(),
     supabase
       .from("subscriptions")
-      .select("id, plan_id, billing_interval, internal_status, current_period_start, current_period_end, entitlement_cycle_start, entitlement_cycle_end, cancel_at_period_end, created_at")
+      .select("id, plan_id, billing_interval, internal_status, current_period_start, current_period_end, entitlement_cycle_start, entitlement_cycle_end, cancel_at_period_end, pending_plan_id, pending_billing_interval, plan_change_effective_at, created_at")
       .eq("user_id", userId)
       .in("internal_status", ["active", "grace_period", "past_due", "canceled"])
       .order("updated_at", { ascending: false })
@@ -128,6 +131,16 @@ export async function getBillingAccount(userId: string) {
     entitlementCycleStart: subscription?.entitlement_cycle_start ?? null,
     entitlementCycleEnd: subscription?.entitlement_cycle_end ?? null,
     cancelAtPeriodEnd: subscription?.cancel_at_period_end ?? false,
+    pendingPlan:
+      subscription?.pending_plan_id === "plus" || subscription?.pending_plan_id === "pro"
+        ? subscription.pending_plan_id
+        : null,
+    pendingBillingInterval:
+      subscription?.pending_billing_interval === "monthly" ||
+      subscription?.pending_billing_interval === "annual"
+        ? subscription.pending_billing_interval
+        : null,
+    planChangeEffectiveAt: subscription?.plan_change_effective_at ?? null,
     subscriptionId: subscription?.id ?? null,
   };
 }

@@ -1,6 +1,7 @@
 import { addEntitlementMonth } from "@/lib/billing/dates";
 import { getPlanDefinition } from "@/lib/billing/catalog";
 import { ensureCurrentCreditGrant } from "@/lib/billing/account";
+import { planChangeCreditCycle } from "@/lib/billing/plan-change";
 import { subscriptionStatusForEvent } from "@/lib/billing/provider-events";
 import type {
   BillingInterval,
@@ -29,16 +30,17 @@ export async function applyVerifiedSubscriptionEvent(event: VerifiedSubscription
   const status = subscriptionStatusForEvent(event.eventType);
   if (!status) return { handled: false };
   const supabase = createSupabaseAdminClient();
-  const [{ data: subscription, error }, { data: profile }] = await Promise.all([
-    supabase.from("subscriptions")
-    .select("id, provider_event_created_at, plan_id")
+  const { data: subscription, error } = await supabase.from("subscriptions")
+    .select("id, provider_event_created_at, plan_id, billing_interval, pending_plan_id, pending_billing_interval")
     .eq("razorpay_subscription_id", event.providerSubscriptionId)
-    .maybeSingle(),
-    supabase.from("profiles").select("plan").eq("id", event.userId).single(),
-  ]);
+    .maybeSingle();
   if (error) throw error;
   if (!subscription) throw new Error("SUBSCRIPTION_NOT_FOUND");
-  const previousPlan = (profile?.plan ?? subscription.plan_id) as PlanId;
+  const previousPlan = subscription.plan_id as PlanId;
+  const confirmedPlanChange =
+    subscription.pending_plan_id === event.plan &&
+    subscription.pending_billing_interval === event.interval &&
+    (subscription.plan_id !== event.plan || subscription.billing_interval !== event.interval);
   if (
     subscription.provider_event_created_at &&
     new Date(subscription.provider_event_created_at) > event.eventCreatedAt
@@ -56,6 +58,15 @@ export async function applyVerifiedSubscriptionEvent(event: VerifiedSubscription
     : null;
   const canceled = status === "canceled";
   const terminal = ["expired", "refunded", "chargeback"].includes(status);
+  const refreshedCreditCycle = confirmedPlanChange
+    ? planChangeCreditCycle({
+        effectiveAt: event.eventCreatedAt,
+        interval: event.interval,
+        providerPeriodEnd: event.currentPeriodEnd,
+      })
+    : null;
+  const entitlementCycleStart = refreshedCreditCycle?.start ?? periodStart;
+  const entitlementCycleEnd = refreshedCreditCycle?.end ?? addEntitlementMonth(periodStart, 1);
 
   const { error: updateError } = await supabase.from("subscriptions").update({
     plan_id: event.plan,
@@ -68,8 +79,8 @@ export async function applyVerifiedSubscriptionEvent(event: VerifiedSubscription
     provider_price_id: event.providerPriceId,
     current_period_start: periodStart.toISOString(),
     current_period_end: periodEnd.toISOString(),
-    entitlement_cycle_start: periodStart.toISOString(),
-    entitlement_cycle_end: addEntitlementMonth(periodStart, 1).toISOString(),
+    entitlement_cycle_start: entitlementCycleStart.toISOString(),
+    entitlement_cycle_end: entitlementCycleEnd.toISOString(),
     cancel_at_period_end: canceled,
     canceled_at: canceled ? event.eventCreatedAt.toISOString() : null,
     grace_period_end: gracePeriodEnd?.toISOString() ?? null,
@@ -112,20 +123,25 @@ export async function applyVerifiedSubscriptionEvent(event: VerifiedSubscription
         p_plan_id: "free",
         p_reason: "paid_activation",
       });
-      if (previousPlan === "plus" && event.plan === "pro") {
-        const adjustment =
-          (getPlanDefinition("pro").monthlyCredits ?? 0) -
-          (getPlanDefinition("plus").monthlyCredits ?? 0);
-        await supabase.rpc("grant_credit_bucket", {
+      if (confirmedPlanChange && refreshedCreditCycle) {
+        const { error: expireError } = await supabase.rpc("expire_credit_buckets", {
           p_user_id: event.userId,
-          p_source_type: "upgrade_adjustment",
-          p_source_reference_id: subscription.id,
-          p_amount: adjustment,
-          p_valid_from: periodStart.toISOString(),
-          p_expires_at: addEntitlementMonth(periodStart, 1).toISOString(),
-          p_plan_id: "pro",
-          p_grant_period_key: `pro:${periodStart.toISOString()}`,
+          p_plan_id: previousPlan,
+          p_reason: "plan_change_credit_refresh",
         });
+        if (expireError) throw expireError;
+        const { error: grantError } = await supabase.rpc("grant_credit_bucket", {
+          p_user_id: event.userId,
+          p_source_type:
+            event.plan === "plus" ? "plus_monthly_grant" : "pro_monthly_grant",
+          p_source_reference_id: subscription.id,
+          p_amount: getPlanDefinition(event.plan).monthlyCredits ?? 0,
+          p_valid_from: refreshedCreditCycle.start.toISOString(),
+          p_expires_at: refreshedCreditCycle.end.toISOString(),
+          p_plan_id: event.plan,
+          p_grant_period_key: `${event.plan}:${refreshedCreditCycle.start.toISOString()}`,
+        });
+        if (grantError) throw grantError;
       } else {
         await ensureCurrentCreditGrant(event.userId, event.eventCreatedAt);
       }
@@ -139,7 +155,7 @@ export async function applyVerifiedSubscriptionEvent(event: VerifiedSubscription
     metadata: { plan: event.plan, interval: event.interval },
   });
   const analyticsEvent = status === "active"
-    ? previousPlan === "plus" && event.plan === "pro"
+    ? confirmedPlanChange
       ? "subscription_upgraded" as const
       : "subscription_activated" as const
     : status === "grace_period"

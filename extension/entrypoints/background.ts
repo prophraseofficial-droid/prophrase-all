@@ -1,4 +1,12 @@
 import { browser } from "wxt/browser";
+import { isAuthenticationError, rephrase } from "../lib/api";
+import { clearToken, getToken } from "../lib/auth";
+
+type ExtensionMessage = {
+  type?: string;
+  text?: string;
+  tone?: string;
+};
 
 export default defineBackground(() => {
   const extensionAction = browser.action ?? browser.browserAction;
@@ -22,5 +30,35 @@ export default defineBackground(() => {
         await extensionAction.setBadgeBackgroundColor({ color: "#111111" });
       }
     });
+  });
+
+  browser.runtime.onMessage.addListener((rawMessage, _sender, sendResponse) => {
+    const message = rawMessage as ExtensionMessage;
+    if (message.type !== "prophrase:rephrase-selection") return undefined;
+
+    void (async () => {
+      const token = await getToken();
+      if (!token) {
+        return { ok: false, needsAuth: true };
+      }
+      if (!message.text || message.text.trim().length < 3 || message.text.length > 5000) {
+        return { ok: false, error: "Select between 3 and 5,000 characters." };
+      }
+      try {
+        const response = await rephrase(token, message.text.trim(), message.tone || "Professional");
+        return { ok: true, result: response.result };
+      } catch (error) {
+        if (isAuthenticationError(error)) {
+          await clearToken(token);
+          return { ok: false, needsAuth: true };
+        }
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : "ProPhrase could not rephrase this selection.",
+        };
+      }
+    })().then(sendResponse);
+
+    return true;
   });
 });

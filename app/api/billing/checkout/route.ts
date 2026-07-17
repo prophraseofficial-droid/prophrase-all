@@ -13,6 +13,7 @@ import {
   validationError,
 } from "@/lib/security/validation";
 import { getUserPlan } from "@/lib/usage/usage";
+import { getBillingAccount } from "@/lib/billing/account";
 
 export async function POST(request: Request) {
   const csrfResponse = requireTrustedMutation(request);
@@ -30,6 +31,15 @@ export async function POST(request: Request) {
   }
   const parsed = billingCheckoutSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return validationError(getZodErrorMessage(parsed.error));
+
+  const billingAccount = await getBillingAccount(user.id);
+  if (billingAccount.plan !== "free" && billingAccount.subscriptionId) {
+    return apiError(
+      "PLAN_CHANGE_REQUIRED",
+      "An active paid subscription already exists. Change that subscription instead of starting another checkout.",
+      409,
+    );
+  }
 
   const definition = checkoutDefinition(parsed.data.plan, parsed.data.interval);
   if (!definition.razorpayPlanId || !definition.amountPaise) {

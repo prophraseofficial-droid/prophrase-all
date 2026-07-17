@@ -3,16 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { getSafeAuthOrigin } from "@/lib/app-config";
+import { getSafeAuthOrigin, getSafeInternalPath } from "@/lib/app-config";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-
-function safeNextPath(value: string | null) {
-  if (!value || !value.startsWith("/") || value.startsWith("//")) {
-    return "/workspace";
-  }
-
-  return value;
-}
 
 function friendlyAuthError(message: string) {
   if (/code verifier|pkce/i.test(message)) {
@@ -28,7 +20,7 @@ export function AuthFinishClient() {
   const [message, setMessage] = useState("Completing sign-in...");
   const [failed, setFailed] = useState(false);
   const nextPath = useMemo(
-    () => safeNextPath(searchParams.get("next")),
+    () => getSafeInternalPath(searchParams.get("next")),
     [searchParams],
   );
   const intendedOrigin = useMemo(

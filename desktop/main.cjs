@@ -1,5 +1,7 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 const { app, BrowserWindow, ipcMain, Menu, shell } = require("electron");
 const path = require("node:path");
+const { getSafeExternalUrl } = require("./security.cjs");
 
 const PRODUCTION_URL = "https://prophrase.in";
 const isDevelopment = !app.isPackaged;
@@ -148,14 +150,16 @@ function createWindow() {
     if (isAppNavigation(target)) return;
 
     event.preventDefault();
-    void shell.openExternal(target);
+    const externalUrl = getSafeExternalUrl(target);
+    if (externalUrl) void shell.openExternal(externalUrl);
   });
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (isAppNavigation(url)) {
       return { action: "allow" };
     }
 
-    void shell.openExternal(url);
+    const externalUrl = getSafeExternalUrl(url);
+    if (externalUrl) void shell.openExternal(externalUrl);
     return { action: "deny" };
   });
   window.webContents.on("did-fail-load", (_event, code, _description, url) => {

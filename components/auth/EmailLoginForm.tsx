@@ -6,6 +6,7 @@ import {
   getAuthCallbackUrl,
   storeAuthRedirectContext,
 } from "@/lib/app-config";
+import { getMagicLinkErrorMessage } from "@/lib/auth/errors";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 function ArrowRight() {
@@ -71,11 +72,8 @@ export function EmailLoginForm() {
 
       setStatus("Check your email for the sign-in link.");
     } catch (caughtError) {
-      setError(
-        caughtError instanceof Error
-          ? caughtError.message
-          : "Unable to send sign-in link. Please try Google sign-in.",
-      );
+      console.error("Unable to send magic link", caughtError);
+      setError(getMagicLinkErrorMessage(caughtError));
     } finally {
       setIsLoading(false);
     }

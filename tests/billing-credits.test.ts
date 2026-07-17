@@ -22,6 +22,16 @@ import {
   verifyRazorpayWebhookSignature,
 } from "../lib/billing/razorpay.ts";
 import { subscriptionStatusForEvent } from "../lib/billing/provider-events.ts";
+import {
+  classifyPlanChange,
+  buildRazorpayPlanUpdate,
+  planChangeChargePolicy,
+  planChangeCreditCycle,
+  razorpayScheduleForPlanChange,
+  remainingBillingCycles,
+  shouldApplySubscriptionUpdate,
+  type PaidPlanSelection,
+} from "../lib/billing/plan-change.ts";
 
 test("calculates exact credit boundaries", () => {
   const cases = [[1, 1], [500, 1], [501, 2], [1200, 2], [1201, 4], [2500, 4], [2501, 8], [5000, 8]] as const;
@@ -161,9 +171,100 @@ test("maps provider lifecycle events without granting unknown events", () => {
   assert.equal(subscriptionStatusForEvent("subscription.charged"), "active");
   assert.equal(subscriptionStatusForEvent("payment.failed"), "grace_period");
   assert.equal(subscriptionStatusForEvent("subscription.cancelled"), "canceled");
+  assert.equal(subscriptionStatusForEvent("subscription.updated"), "active");
   assert.equal(subscriptionStatusForEvent("payment.refunded"), "refunded");
   assert.equal(subscriptionStatusForEvent("payment.dispute.created"), "chargeback");
   assert.equal(subscriptionStatusForEvent("unrecognized.event"), null);
+});
+
+test("classifies every paid plan and interval transition", () => {
+  const plusMonthly = { plan: "plus", interval: "monthly" } as const;
+  const plusAnnual = { plan: "plus", interval: "annual" } as const;
+  const proMonthly = { plan: "pro", interval: "monthly" } as const;
+  const proAnnual = { plan: "pro", interval: "annual" } as const;
+  const selections: PaidPlanSelection[] = [plusMonthly, plusAnnual, proMonthly, proAnnual];
+
+  const expected = new Map<string, ReturnType<typeof classifyPlanChange>>([
+    ["plus:monthly->plus:annual", "immediate"],
+    ["plus:monthly->pro:monthly", "immediate"],
+    ["plus:monthly->pro:annual", "immediate"],
+    ["plus:annual->plus:monthly", "cycle_end"],
+    ["plus:annual->pro:monthly", "immediate"],
+    ["plus:annual->pro:annual", "immediate"],
+    ["pro:monthly->plus:monthly", "cycle_end"],
+    ["pro:monthly->plus:annual", "cycle_end"],
+    ["pro:monthly->pro:annual", "immediate"],
+    ["pro:annual->plus:monthly", "cycle_end"],
+    ["pro:annual->plus:annual", "cycle_end"],
+    ["pro:annual->pro:monthly", "cycle_end"],
+  ]);
+
+  for (const current of selections) {
+    for (const target of selections) {
+      const key = `${current.plan}:${current.interval}->${target.plan}:${target.interval}`;
+      const actual = classifyPlanChange(current, target);
+      if (current.plan === target.plan && current.interval === target.interval) {
+        assert.equal(actual, "unchanged", key);
+      } else {
+        assert.equal(actual, expected.get(key), key);
+      }
+    }
+  }
+});
+
+test("maps plan transitions to Razorpay charging and scheduling policy", () => {
+  assert.equal(razorpayScheduleForPlanChange("immediate"), "now");
+  assert.equal(razorpayScheduleForPlanChange("cycle_end"), "cycle_end");
+  assert.equal(planChangeChargePolicy("immediate"), "prorated_difference");
+  assert.equal(planChangeChargePolicy("cycle_end"), "next_renewal");
+  assert.equal(planChangeChargePolicy("unchanged"), "none");
+  assert.equal(remainingBillingCycles("monthly"), 120);
+  assert.equal(remainingBillingCycles("annual"), 10);
+  assert.deepEqual(
+    buildRazorpayPlanUpdate(
+      "plan_pro_annual",
+      { plan: "pro", interval: "annual" },
+      "immediate",
+    ),
+    {
+      plan_id: "plan_pro_annual",
+      remaining_count: 10,
+      schedule_change_at: "now",
+      customer_notify: true,
+    },
+  );
+});
+
+test("does not apply scheduled subscription updates before cycle end", () => {
+  assert.equal(shouldApplySubscriptionUpdate("subscription.updated", true), false);
+  assert.equal(shouldApplySubscriptionUpdate("subscription.updated", false), true);
+  assert.equal(shouldApplySubscriptionUpdate("subscription.charged", true), true);
+});
+
+test("refreshes upgraded credits immediately using the correct next refresh boundary", () => {
+  const effectiveAt = new Date("2026-07-17T08:00:00.000Z");
+  assert.deepEqual(
+    planChangeCreditCycle({
+      effectiveAt,
+      interval: "monthly",
+      providerPeriodEnd: new Date("2026-07-25T08:00:00.000Z"),
+    }),
+    {
+      start: effectiveAt,
+      end: new Date("2026-07-25T08:00:00.000Z"),
+    },
+  );
+  assert.deepEqual(
+    planChangeCreditCycle({
+      effectiveAt,
+      interval: "annual",
+      providerPeriodEnd: new Date("2027-07-17T08:00:00.000Z"),
+    }),
+    {
+      start: effectiveAt,
+      end: new Date("2026-08-17T08:00:00.000Z"),
+    },
+  );
 });
 
 test("verifies Razorpay webhook signatures over the exact raw body", () => {

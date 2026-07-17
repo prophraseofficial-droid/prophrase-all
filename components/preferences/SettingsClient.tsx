@@ -166,54 +166,59 @@ export function SettingsClient({
   }
 
   return (
-    <main className="min-h-screen bg-[#f7f6f2] text-primary">
-      <header className="border-b border-border-subtle bg-white/90 px-4 py-4 backdrop-blur md:px-8">
+    <main className="settings-page min-h-screen text-primary">
+      <header className="settings-topbar border-b px-4 py-4 backdrop-blur md:px-8">
         <div className="mx-auto flex max-w-6xl items-center justify-between">
-          <Link className="flex items-center gap-3" href="/workspace">
-            <Image alt="ProPhrase" className="h-8 w-8 object-contain" height={32} src="/prophrase-logo-transparent.png" width={32} />
-            <span className="text-xl font-bold">ProPhrase</span>
+          <Link className="settings-brand flex items-center gap-3" href="/workspace">
+            <Image alt="ProPhrase" className="object-contain" height={44} src="/prophrase-logo-transparent.png" width={44} />
+            <span className="font-bold">ProPhrase</span>
           </Link>
-          <Link className="min-h-11 rounded-lg border border-border-subtle bg-white px-4 py-3 text-sm font-semibold" href="/workspace">Back to workspace</Link>
+          <Link className="settings-back min-h-11 px-5 py-3 text-sm font-semibold" href="/workspace">Back to workspace <span aria-hidden="true">→</span></Link>
         </div>
       </header>
 
-      <div className="mx-auto grid max-w-6xl gap-8 px-4 py-8 md:grid-cols-[220px_minmax(0,1fr)] md:px-8 md:py-12">
-        <aside>
-          <p className="text-xs font-semibold uppercase text-text-muted">App Settings</p>
-          <nav className="mt-3 flex gap-2 overflow-x-auto md:flex-col" aria-label="Settings sections">
-            <a className="min-h-11 shrink-0 rounded-lg bg-primary px-4 py-3 text-sm font-semibold text-white" href="#rephrase">Rephrase</a>
-            <a className="min-h-11 shrink-0 rounded-lg px-4 py-3 text-sm font-semibold text-text-muted hover:bg-white" href="#outcome">Outcome Assistant</a>
+      <div className="settings-layout mx-auto grid max-w-6xl gap-8 px-4 py-8 md:grid-cols-[240px_minmax(0,1fr)] md:px-8 md:py-12">
+        <aside className="settings-sidebar">
+          <p className="settings-sidebar-label text-xs font-semibold uppercase">App Settings</p>
+          <nav className="settings-nav mt-3 flex gap-2 overflow-x-auto md:flex-col" aria-label="Settings sections">
+            <a className="settings-nav-link is-active min-h-11 shrink-0 px-4 py-3 text-sm font-semibold" href="#rephrase">Rephrase</a>
+            <a className="settings-nav-link min-h-11 shrink-0 px-4 py-3 text-sm font-semibold" href="#outcome">Outcome Assistant</a>
           </nav>
+          <div className="settings-sidebar-note">
+            <span>Saved everywhere</span>
+            <p>Your choices follow you across workspace and extension.</p>
+          </div>
         </aside>
 
-        <div className="min-w-0">
-          <header>
-            <h1 className="text-3xl font-bold md:text-4xl">Writing preferences</h1>
+        <div className="settings-content min-w-0">
+          <header className="settings-intro">
+            <span className="settings-eyebrow">Make ProPhrase yours</span>
+            <h1 className="text-3xl font-bold md:text-5xl">Writing preferences</h1>
             <p className="mt-3 max-w-2xl text-base leading-7 text-text-muted">Keep your everyday choices close. Every style and shortcut remains available through More.</p>
           </header>
 
-          <section className="mt-10 border-t border-border-subtle pt-8" id="rephrase">
+          <section className="settings-section mt-10 pt-8" id="rephrase">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <h2 className="text-2xl font-bold">Rephrase preferences</h2>
                 <p className="mt-2 text-sm text-text-muted">Choose one to five Quick Styles and arrange their workspace order.</p>
               </div>
-              <button className="min-h-11 text-sm font-semibold underline" onClick={resetRephrase} type="button">Reset recommended</button>
+              <button className="settings-reset min-h-11 text-sm font-semibold" onClick={resetRephrase} type="button">Reset recommended</button>
             </div>
 
             <div className="mt-6 grid gap-3" aria-label="Selected Quick Styles">
               {draft.rephrase.quickStyles.map((id, index) => (
-                <div className="flex min-h-16 items-center gap-3 rounded-lg border border-border-subtle bg-white px-4 py-3" key={id}>
-                  <span className="flex h-8 w-8 items-center justify-center rounded-md bg-surface-container-low text-sm font-bold">{index + 1}</span>
+                <div className="settings-style-row flex min-h-16 items-center gap-3 px-4 py-3" key={id}>
+                  <span className="settings-rank flex h-9 w-9 items-center justify-center text-sm font-bold">{index + 1}</span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-sm font-semibold">{quickStyleById[id].label}</span>
                     <span className="block truncate text-xs text-text-muted">{quickStyleById[id].description}</span>
                   </span>
-                  <label className="flex min-h-10 items-center gap-2 text-xs font-semibold">
+                  <label className="settings-default flex min-h-10 items-center gap-2 text-xs font-semibold">
                     <input checked={draft.rephrase.defaultStyle === id} name="default-style" onChange={() => setDraft((current) => ({ ...current, rephrase: { ...current.rephrase, defaultStyle: id } }))} type="radio" /> Default
                   </label>
-                  <button aria-label={`Move ${quickStyleById[id].label} up`} className="h-10 w-10 rounded-md border border-border-subtle disabled:opacity-30" disabled={index === 0} onClick={() => moveStyle(index, -1)} type="button">↑</button>
-                  <button aria-label={`Move ${quickStyleById[id].label} down`} className="h-10 w-10 rounded-md border border-border-subtle disabled:opacity-30" disabled={index === draft.rephrase.quickStyles.length - 1} onClick={() => moveStyle(index, 1)} type="button">↓</button>
+                  <button aria-label={`Move ${quickStyleById[id].label} up`} className="settings-reorder h-10 w-10 disabled:opacity-30" disabled={index === 0} onClick={() => moveStyle(index, -1)} type="button">↑</button>
+                  <button aria-label={`Move ${quickStyleById[id].label} down`} className="settings-reorder h-10 w-10 disabled:opacity-30" disabled={index === draft.rephrase.quickStyles.length - 1} onClick={() => moveStyle(index, 1)} type="button">↓</button>
                 </div>
               ))}
             </div>
@@ -225,7 +230,7 @@ export function SettingsClient({
                   <div className="mt-3 grid gap-2">
                     {quickStyleRegistry.filter((style) => style.group === group.id).map((style) => {
                       const checked = draft.rephrase.quickStyles.includes(style.id);
-                      return <label className={`flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border px-4 py-3 ${checked ? "border-primary bg-white" : "border-border-subtle bg-white/50"}`} key={style.id}><input checked={checked} onChange={() => toggleStyle(style.id)} type="checkbox" /><span className="text-sm font-semibold">{style.label}</span></label>;
+                      return <label className={`settings-choice-card flex min-h-12 cursor-pointer items-center gap-3 px-4 py-3 ${checked ? "is-checked" : ""}`} key={style.id}><input checked={checked} onChange={() => toggleStyle(style.id)} type="checkbox" /><span className="text-sm font-semibold">{style.label}</span></label>;
                     })}
                   </div>
                 </fieldset>
@@ -233,36 +238,36 @@ export function SettingsClient({
             </div>
           </section>
 
-          <section className="mt-12 border-t border-border-subtle pt-8" id="outcome">
+          <section className="settings-section mt-12 pt-8" id="outcome">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <h2 className="text-2xl font-bold">Outcome Assistant preferences</h2>
                 <p className="mt-2 text-sm text-text-muted">Choose the people and goals you use most often.</p>
               </div>
-              <button className="min-h-11 text-sm font-semibold underline" onClick={resetOutcome} type="button">Reset recommended</button>
+              <button className="settings-reset min-h-11 text-sm font-semibold" onClick={resetOutcome} type="button">Reset recommended</button>
             </div>
 
             <div className="mt-7 grid gap-8 md:grid-cols-2">
               <fieldset>
                 <legend className="text-sm font-semibold">Favorite recipients · {draft.outcomeAssistant.favoriteRecipients.length}/4</legend>
-                <div className="mt-3 flex flex-wrap gap-2">{recipientOptions.map((recipient) => <label className={`cursor-pointer rounded-full border px-4 py-2.5 text-sm font-semibold ${draft.outcomeAssistant.favoriteRecipients.includes(recipient) ? "border-primary bg-primary text-white" : "border-border-subtle bg-white"}`} key={recipient}><input className="sr-only" checked={draft.outcomeAssistant.favoriteRecipients.includes(recipient)} onChange={() => toggleRecipient(recipient)} type="checkbox" />{recipientLabels[recipient]}</label>)}</div>
+                <div className="mt-3 flex flex-wrap gap-2">{recipientOptions.map((recipient) => <label className={`settings-pill cursor-pointer px-4 py-2.5 text-sm font-semibold ${draft.outcomeAssistant.favoriteRecipients.includes(recipient) ? "is-checked" : ""}`} key={recipient}><input className="sr-only" checked={draft.outcomeAssistant.favoriteRecipients.includes(recipient)} onChange={() => toggleRecipient(recipient)} type="checkbox" />{recipientLabels[recipient]}</label>)}</div>
               </fieldset>
               <fieldset>
                 <legend className="text-sm font-semibold">Favorite goals · {draft.outcomeAssistant.favoriteIntents.length}/6</legend>
-                <div className="mt-3 flex flex-wrap gap-2">{intentOptions.map((intent) => <label className={`cursor-pointer rounded-full border px-4 py-2.5 text-sm font-semibold ${draft.outcomeAssistant.favoriteIntents.includes(intent) ? "border-primary bg-primary text-white" : "border-border-subtle bg-white"}`} key={intent}><input className="sr-only" checked={draft.outcomeAssistant.favoriteIntents.includes(intent)} onChange={() => toggleIntent(intent)} type="checkbox" />{intentLabels[intent]}</label>)}</div>
+                <div className="mt-3 flex flex-wrap gap-2">{intentOptions.map((intent) => <label className={`settings-pill cursor-pointer px-4 py-2.5 text-sm font-semibold ${draft.outcomeAssistant.favoriteIntents.includes(intent) ? "is-checked" : ""}`} key={intent}><input className="sr-only" checked={draft.outcomeAssistant.favoriteIntents.includes(intent)} onChange={() => toggleIntent(intent)} type="checkbox" />{intentLabels[intent]}</label>)}</div>
               </fieldset>
             </div>
 
             <div className="mt-8 grid gap-5 md:grid-cols-2">
-              <label className="grid gap-2 text-sm font-semibold">Default channel<select className="min-h-12 rounded-lg border border-border-subtle bg-white px-3" onChange={(event) => setDraft((current) => ({ ...current, outcomeAssistant: { ...current.outcomeAssistant, defaultChannel: event.target.value as PreferenceChannel } }))} value={draft.outcomeAssistant.defaultChannel}><option value="auto">Auto</option>{channelOptions.map((channel) => <option key={channel} value={channel}>{channelLabels[channel]}</option>)}</select></label>
-              <label className="grid gap-2 text-sm font-semibold">Default result<select className="min-h-12 rounded-lg border border-border-subtle bg-white px-3" onChange={(event) => setDraft((current) => ({ ...current, outcomeAssistant: { ...current.outcomeAssistant, defaultVariant: event.target.value as OutcomeVersionId } }))} value={draft.outcomeAssistant.defaultVariant}><option value="safe">Safe</option><option value="balanced">Balanced</option><option value="firm">Firm</option></select></label>
+              <label className="grid gap-2 text-sm font-semibold">Default channel<select className="settings-select min-h-12 px-3" onChange={(event) => setDraft((current) => ({ ...current, outcomeAssistant: { ...current.outcomeAssistant, defaultChannel: event.target.value as PreferenceChannel } }))} value={draft.outcomeAssistant.defaultChannel}><option value="auto">Auto</option>{channelOptions.map((channel) => <option key={channel} value={channel}>{channelLabels[channel]}</option>)}</select></label>
+              <label className="grid gap-2 text-sm font-semibold">Default result<select className="settings-select min-h-12 px-3" onChange={(event) => setDraft((current) => ({ ...current, outcomeAssistant: { ...current.outcomeAssistant, defaultVariant: event.target.value as OutcomeVersionId } }))} value={draft.outcomeAssistant.defaultVariant}><option value="safe">Safe</option><option value="balanced">Balanced</option><option value="firm">Firm</option></select></label>
             </div>
           </section>
 
-          {error ? <p className="mt-8 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">{error}</p> : null}
-          <div className="sticky bottom-0 mt-8 flex items-center justify-between gap-4 border-t border-border-subtle bg-[#f7f6f2]/95 py-4 backdrop-blur">
+          {error ? <p className="settings-error mt-8 px-4 py-3 text-sm text-red-700" role="alert">{error}</p> : null}
+          <div className="settings-savebar sticky bottom-0 mt-8 flex items-center justify-between gap-4 py-4 backdrop-blur">
             <p className="text-sm text-text-muted" aria-live="polite">{status || (dirty ? "Unsaved changes" : "Preferences are up to date")}</p>
-            <button className="min-h-11 rounded-lg bg-primary px-6 text-sm font-semibold text-white disabled:opacity-40" disabled={!dirty || saving || !preferencesAvailable} onClick={() => void save()} type="button">{saving ? "Saving..." : "Save preferences"}</button>
+            <button className="settings-save min-h-11 px-6 text-sm font-semibold text-white disabled:opacity-40" disabled={!dirty || saving || !preferencesAvailable} onClick={() => void save()} type="button">{saving ? "Saving..." : "Save preferences"}</button>
           </div>
         </div>
       </div>

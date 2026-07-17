@@ -5,7 +5,7 @@ export default defineConfig({
   manifest: ({ mode }) => ({
     name: "ProPhrase",
     short_name: "ProPhrase",
-    description: "Rewrite messages and prepare outcome-focused replies from any page.",
+    description: "Rephrase selected text and copy content across your ProPhrase devices.",
     permissions: ["activeTab", "contextMenus", "identity", "scripting", "storage"],
     host_permissions: [
       "https://prophrase.in/*",
@@ -25,6 +25,12 @@ export default defineConfig({
         32: "icons/icon-32.png",
       },
     },
+    web_accessible_resources: [
+      {
+        resources: ["icons/icon-48.png"],
+        matches: ["http://*/*", "https://*/*"],
+      },
+    ],
     browser_specific_settings: {
       gecko: {
         id: "extension@prophrase.in",

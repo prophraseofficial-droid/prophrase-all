@@ -16,14 +16,27 @@ function isProductionAppEnv() {
   );
 }
 
-function resolvePublicUrl(value: string | undefined) {
+export function resolvePublicUrl(
+  value: string | undefined,
+  production = isProductionAppEnv(),
+) {
   const cleanedUrl = value ? cleanUrl(value) : "";
 
-  if (cleanedUrl && !(isProductionAppEnv() && isLocalUrl(cleanedUrl))) {
-    return cleanedUrl;
+  if (cleanedUrl) {
+    try {
+      const parsed = new URL(cleanedUrl);
+      if (
+        parsed.protocol === "https:" ||
+        (!production && parsed.protocol === "http:" && isLocalUrl(cleanedUrl))
+      ) {
+        return cleanedUrl;
+      }
+    } catch {
+      // Fall back to the environment default below.
+    }
   }
 
-  return isProductionAppEnv() ? PRODUCTION_APP_URL : DEVELOPMENT_APP_URL;
+  return production ? PRODUCTION_APP_URL : DEVELOPMENT_APP_URL;
 }
 
 export const appConfig = {

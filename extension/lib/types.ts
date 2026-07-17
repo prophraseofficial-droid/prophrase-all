@@ -1,4 +1,4 @@
-export type Mode = "rephrase" | "outcome";
+export type Mode = "rephrase" | "universal";
 
 export type SelectionSnapshot = {
   text: string;
@@ -16,14 +16,26 @@ export type CreditsResponse = {
   };
 };
 
-export type OutcomeVersion = {
-  id: "safe" | "balanced" | "firm";
-  label?: string;
-  message: string;
-  howItMayBeReceived?: string;
+export type UniversalClipboardItem = {
+  id: string;
+  sourceDeviceId: string;
+  sourceDeviceLabel: string;
+  preview: string;
+  status: "available" | "claimed" | "expired";
+  claimedByDeviceId: string | null;
+  claimedByDeviceLabel: string | null;
+  claimedAt: string | null;
+  expiresAt: string;
+  createdAt: string;
+  isExpired: boolean;
 };
 
-export type OutcomeResponse = {
-  variants: OutcomeVersion[];
-  credits?: unknown;
+export type UniversalClipboardResponse = {
+  item: UniversalClipboardItem | null;
+  serverTime?: string;
+};
+
+export type UniversalClipboardClaimResponse = {
+  item: UniversalClipboardItem;
+  text: string;
 };

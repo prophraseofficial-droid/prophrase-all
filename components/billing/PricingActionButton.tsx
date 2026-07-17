@@ -79,15 +79,20 @@ export function PricingActionButton({
     setIsLoading(true);
     setError("");
     try {
-      if (currentPlan !== "free" && currentPlan !== plan) {
+      if (currentPlan !== "free") {
         const changeResponse = await fetch("/api/billing/change-plan", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ plan, interval, idempotencyKey: crypto.randomUUID() }),
         });
-        const changeData = await changeResponse.json() as { message?: string };
+        const changeData = await changeResponse.json() as {
+          message?: string;
+          immediate?: boolean;
+        };
         if (!changeResponse.ok) throw new Error(changeData.message || "Unable to change plan.");
-        window.location.href = "/account/billing?plan_change=processing";
+        window.location.href = changeData.immediate
+          ? "/account/billing?plan_change=processing"
+          : "/account/billing?plan_change=scheduled";
         return;
       }
       const response = await fetch("/api/billing/checkout", {
@@ -155,7 +160,9 @@ export function PricingActionButton({
   return (
     <div>
       <button className={className} disabled={isLoading} onClick={() => void startCheckout()} type="button">
-        {isLoading ? "Opening checkout..." : children}
+        {isLoading
+          ? currentPlan === "free" ? "Opening checkout..." : "Updating plan..."
+          : children}
       </button>
       {error ? <p className="mt-2 text-center text-sm text-red-700" role="alert">{error}</p> : null}
     </div>

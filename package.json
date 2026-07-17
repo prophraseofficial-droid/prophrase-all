@@ -11,6 +11,7 @@
     "billing:admin": "node scripts/billing-admin.mjs",
     "security:client-bundle": "node scripts/check-client-secrets.mjs",
     "assets:transparent-logo": "node scripts/make-transparent-logo.mjs",
+    "assets:extension-icons": "node scripts/sync-extension-icons.mjs",
     "extension:install": "npm --prefix extension install",
     "extension:dev": "npm --prefix extension run dev",
     "extension:build": "npm --prefix extension run build:all",

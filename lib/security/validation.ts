@@ -124,11 +124,17 @@ export const universalClipboardCreateSchema = z.object({
   deviceLabel: z.string().trim().min(2).max(80),
   text: z.string().trim().min(1).max(4000),
   expiresInSeconds: z.number().int().min(30).max(3600).default(600),
+  platform: z
+    .enum(["web", "desktop", "android", "ios", "extension"])
+    .default("web"),
 });
 
 export const universalClipboardClaimSchema = z.object({
   deviceId: deviceIdSchema,
   deviceLabel: z.string().trim().min(2).max(80),
+  platform: z
+    .enum(["web", "desktop", "android", "ios", "extension"])
+    .default("web"),
 });
 
 const razorpayIdSchema = (prefix: string) =>
@@ -162,6 +168,9 @@ export type ApiErrorCode =
   | "CREDIT_REQUEST_IN_PROGRESS"
   | "PAYMENT_PROCESSING"
   | "SUBSCRIPTION_NOT_ACTIVE"
+  | "SUBSCRIPTION_CANCELLATION_PENDING"
+  | "PLAN_CHANGE_PENDING"
+  | "PLAN_CHANGE_REQUIRED"
   | "SUBSCRIPTION_PAST_DUE"
   | "CHECKOUT_FAILED"
   | "WEBHOOK_VERIFICATION_FAILED"

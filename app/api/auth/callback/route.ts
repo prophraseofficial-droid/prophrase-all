@@ -1,23 +1,11 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { AUTH_NEXT_COOKIE, getSafeAuthOrigin } from "@/lib/app-config";
+import {
+  AUTH_NEXT_COOKIE,
+  getSafeAuthOrigin,
+  getSafeInternalPath,
+} from "@/lib/app-config";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-
-function safeNextPath(value: string | null) {
-  if (!value) {
-    return "/workspace";
-  }
-
-  try {
-    const decoded = decodeURIComponent(value);
-    if (!decoded.startsWith("/") || decoded.startsWith("//")) {
-      return "/workspace";
-    }
-    return decoded;
-  } catch {
-    return "/workspace";
-  }
-}
 
 function authFinishUrl(requestUrl: URL, next: string) {
   const finishUrl = new URL("/auth/finish", requestUrl.origin);
@@ -54,7 +42,7 @@ export async function GET(request: NextRequest) {
   const authError =
     requestUrl.searchParams.get("error_description") ||
     requestUrl.searchParams.get("error");
-  const next = safeNextPath(
+  const next = getSafeInternalPath(
     requestUrl.searchParams.get("next") ??
       request.cookies.get(AUTH_NEXT_COOKIE)?.value ??
       null,

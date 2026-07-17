@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { patchPreferences } from "@/lib/preferences/client";
 import { trackPreferenceEvent } from "@/lib/preferences/analytics";
 import {
@@ -28,13 +28,33 @@ export function QuickStylesBar({
   onSelect: (tone: Tone) => void;
   onPreferencesChange: (preferences: UserPreferences) => void;
 }) {
-  const detailsRef = useRef<HTMLDetailsElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [replaceWith, setReplaceWith] = useState<QuickStyleId | null>(null);
   const [saving, setSaving] = useState(false);
   const selectedId = quickStyleIdByTone[selectedTone];
   const pinned = preferences.rephrase.quickStyles;
   const unpinned = quickStyleRegistry.filter((style) => !pinned.includes(style.id));
   const replaceLabel = replaceWith ? quickStyleById[replaceWith].label : "this style";
+
+  useEffect(() => {
+    if (!menuOpen) return;
+
+    function handlePointerDown(event: PointerEvent) {
+      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setMenuOpen(false);
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [menuOpen]);
 
   async function persistStyles(styles: QuickStyleId[], defaultStyle = preferences.rephrase.defaultStyle) {
     setSaving(true);
@@ -68,7 +88,7 @@ export function QuickStylesBar({
   }
 
   return (
-    <div className="relative z-20 mx-auto w-full max-w-4xl px-0 py-0">
+    <div className="workspace-quick-styles relative z-20 mx-auto w-full max-w-4xl px-0 py-0">
       <div className="flex items-center gap-2">
         <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto" aria-label="Quick Styles">
           {pinned.map((id) => {
@@ -77,7 +97,7 @@ export function QuickStylesBar({
             return (
               <button
                 aria-pressed={selected}
-                className={selected ? "min-h-9 shrink-0 rounded-full bg-black px-5 text-xs font-semibold text-white" : "min-h-9 shrink-0 rounded-full border border-transparent bg-[#f3f4f5] px-5 text-xs font-semibold text-text-muted hover:bg-[#e5e7eb] hover:text-primary"}
+                className={selected ? "quick-style-chip is-selected min-h-9 shrink-0 rounded-full bg-black px-5 text-xs font-semibold text-white" : "quick-style-chip min-h-9 shrink-0 rounded-full border border-transparent bg-[#f3f4f5] px-5 text-xs font-semibold text-text-muted hover:bg-[#e5e7eb] hover:text-primary"}
                 disabled={disabled || saving}
                 key={id}
                 onClick={() => {
@@ -90,14 +110,25 @@ export function QuickStylesBar({
           })}
         </div>
 
-        <details className="relative shrink-0" onToggle={(event) => {
-          if ((event.currentTarget as HTMLDetailsElement).open) trackPreferenceEvent("rephrase_more_opened", { source: "workspace" });
-        }} ref={detailsRef}>
-          <summary aria-label="More styles" className="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-full text-lg font-semibold text-text-muted hover:bg-[#f3f4f5]">...</summary>
-          <div className="fixed inset-x-0 bottom-0 z-50 max-h-[75dvh] overflow-y-auto rounded-t-2xl border border-border-subtle bg-white p-5 shadow-2xl md:absolute md:inset-auto md:right-0 md:top-12 md:w-80 md:rounded-lg">
+        <div className="relative shrink-0" ref={menuRef}>
+          <button
+            aria-controls="quick-style-menu"
+            aria-expanded={menuOpen}
+            aria-haspopup="dialog"
+            aria-label="More styles"
+            className="quick-style-more flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-full text-lg font-semibold text-text-muted hover:bg-[#f3f4f5]"
+            onClick={() => {
+              setMenuOpen((open) => {
+                if (!open) trackPreferenceEvent("rephrase_more_opened", { source: "workspace" });
+                return !open;
+              });
+            }}
+            type="button"
+          >...</button>
+          {menuOpen ? <div aria-label="All styles" className="fixed inset-x-0 bottom-0 z-50 max-h-[75dvh] overflow-y-auto rounded-t-2xl border border-border-subtle bg-white p-5 shadow-2xl md:absolute md:inset-auto md:right-0 md:top-12 md:w-80 md:rounded-lg" id="quick-style-menu" role="dialog">
             <div className="mb-4 flex items-center justify-between">
               <p className="font-semibold text-primary">All styles</p>
-              <button className="min-h-10 px-2 text-sm font-semibold text-text-muted md:hidden" onClick={() => detailsRef.current?.removeAttribute("open")} type="button">Close</button>
+              <button className="min-h-10 px-2 text-sm font-semibold text-text-muted md:hidden" onClick={() => setMenuOpen(false)} type="button">Close</button>
             </div>
             {quickStyleGroups.map((group) => {
               const styles = unpinned.filter((style) => style.group === group.id);
@@ -107,19 +138,19 @@ export function QuickStylesBar({
                   <div className="grid gap-1">
                     {styles.map((style) => (
                       <div className={selectedId === style.id ? "rounded-lg bg-surface-container-low p-2" : "rounded-lg p-2 hover:bg-surface-container-low"} key={style.id}>
-                        <button className="min-h-10 w-full text-left" disabled={disabled} onClick={() => { onSelect(style.tone); detailsRef.current?.removeAttribute("open"); }} type="button">
+                        <button className="min-h-10 w-full text-left" disabled={disabled} onClick={() => { onSelect(style.tone); setMenuOpen(false); }} type="button">
                           <span className="block text-sm font-semibold text-primary">{style.label}</span>
                           <span className="block text-xs text-text-muted">{style.description}</span>
                         </button>
-                        {selectedId === style.id ? <button className="mt-1 text-xs font-semibold text-primary underline" onClick={() => void pin(style.id)} type="button">Pin to Quick Styles</button> : null}
+                        {selectedId === style.id ? <button className="mt-1 text-xs font-semibold text-primary underline" onClick={() => { setMenuOpen(false); void pin(style.id); }} type="button">Pin to Quick Styles</button> : null}
                       </div>
                     ))}
                   </div>
                 </section>
               ) : null;
             })}
-          </div>
-        </details>
+          </div> : null}
+        </div>
         <Link className="sr-only" href="/settings#rephrase" onClick={() => trackPreferenceEvent("rephrase_customize_opened", { source: "workspace" })}>Customize styles</Link>
       </div>
 

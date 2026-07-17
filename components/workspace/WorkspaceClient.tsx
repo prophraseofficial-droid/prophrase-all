@@ -2,11 +2,9 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import type { ChangeEvent } from "react";
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { OutcomeAssistantPanel } from "@/components/outcome-assistant/OutcomeAssistantPanel";
 import { QuickStylesBar } from "@/components/preferences/QuickStylesBar";
-import { QuickStylesOnboarding } from "@/components/preferences/QuickStylesOnboarding";
 import { isOutcomeAssistantClientEnabled } from "@/lib/feature-flags";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { RewriteTemplate } from "@/lib/templates";
@@ -21,6 +19,25 @@ import {
 import { isPreferencesEnabled } from "@/lib/preferences/flags";
 import { estimateCreditCost } from "@/lib/billing/credits";
 import type { CreditBalance } from "@/lib/billing/types";
+
+const OutcomeAssistantPanel = dynamic(
+  () => import("@/components/outcome-assistant/OutcomeAssistantPanel")
+    .then((module) => module.OutcomeAssistantPanel),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex flex-1 items-center justify-center px-6 py-20 text-sm text-text-muted">
+        Loading Outcome Assistant…
+      </div>
+    ),
+  },
+);
+
+const QuickStylesOnboarding = dynamic(
+  () => import("@/components/preferences/QuickStylesOnboarding")
+    .then((module) => module.QuickStylesOnboarding),
+  { ssr: false },
+);
 
 type UsageSummary = {
   plan: "free" | "plus" | "pro" | "pro_monthly" | "pro_yearly";
@@ -154,7 +171,6 @@ type IconName =
   | "magic"
   | "bolt"
   | "mic"
-  | "attach"
   | "user"
   | "log-out";
 
@@ -240,9 +256,6 @@ const iconPaths: Record<IconName, React.ReactNode> = {
       <path d="M5 10a7 7 0 0 0 14 0" />
       <path d="M12 17v5" />
     </>
-  ),
-  attach: (
-    <path d="m21.4 11.6-8.5 8.5a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 1 1-2.8-2.8l8.5-8.5" />
   ),
   user: (
     <>
@@ -344,7 +357,6 @@ export function WorkspaceClient() {
   const [isListening, setIsListening] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState<VoiceStatus>("idle");
   const [interimTranscript, setInterimTranscript] = useState("");
-  const [attachmentName, setAttachmentName] = useState("");
   const [deviceId, setDeviceId] = useState("");
   const [deviceLabel, setDeviceLabel] = useState("Web browser");
   const [universalItem, setUniversalItem] =
@@ -353,7 +365,6 @@ export function WorkspaceClient() {
   const [universalBusy, setUniversalBusy] = useState(false);
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const mobileAccountMenuRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<InstanceType<SpeechRecognitionConstructor> | null>(
     null,
   );
@@ -573,7 +584,6 @@ export function WorkspaceClient() {
       setLastInput("");
       setLastSourceText(lastUserMessage?.content ?? "");
       setOutputText(lastAssistantMessage?.content ?? "");
-      setAttachmentName("");
     } catch {
       setError("Unable to load this chat. Please try again.");
     }
@@ -639,6 +649,51 @@ export function WorkspaceClient() {
   }, []);
 
   useEffect(() => {
+    let inFlight = false;
+    let controller: AbortController | null = null;
+
+    async function refreshCreditBalance() {
+      if (inFlight || document.visibilityState !== "visible") return;
+      inFlight = true;
+      controller = new AbortController();
+      try {
+        const response = await fetch("/api/credits/balance", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const data = (await response.json().catch(() => null)) as
+          | { enabled?: boolean; balance?: CreditBalance | null }
+          | null;
+
+        if (!response.ok || !data) return;
+        setCreditBillingEnabled(Boolean(data.enabled));
+        setCreditBalance(data.balance ?? null);
+      } catch {
+        // Keep the last known balance when a background refresh cannot complete.
+      } finally {
+        inFlight = false;
+        controller = null;
+      }
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") void refreshCreditBalance();
+    }
+
+    window.addEventListener("focus", refreshCreditBalance);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      controller?.abort();
+      window.removeEventListener("focus", refreshCreditBalance);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    let inFlight = false;
+    let controller: AbortController | null = null;
     const nextDeviceId = getOrCreateDeviceId();
     const nextDeviceLabel = getBrowserDeviceLabel();
     const publishDeviceState = window.setTimeout(() => {
@@ -649,18 +704,25 @@ export function WorkspaceClient() {
     void registerCurrentDevice(nextDeviceId, nextDeviceLabel);
 
     async function refreshDeviceClipboard() {
+      if (inFlight || document.visibilityState !== "visible") return;
+      inFlight = true;
+      controller = new AbortController();
       try {
         const response = await fetch(
           `/api/universal-clipboard?deviceId=${encodeURIComponent(nextDeviceId)}`,
+          { signal: controller.signal },
         );
         if (!response.ok) return;
 
         const data = (await response.json().catch(() => null)) as
           | { item?: UniversalClipboardMetadata | null }
           | null;
-        setUniversalItem(data?.item ?? null);
+        if (active) setUniversalItem(data?.item ?? null);
       } catch {
         // Clipboard polling is best-effort.
+      } finally {
+        inFlight = false;
+        controller = null;
       }
     }
 
@@ -681,6 +743,8 @@ export function WorkspaceClient() {
     window.addEventListener("focus", refreshWhenVisible);
     document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
+      active = false;
+      controller?.abort();
       window.clearTimeout(publishDeviceState);
       window.clearInterval(interval);
       window.removeEventListener("focus", refreshWhenVisible);
@@ -689,6 +753,8 @@ export function WorkspaceClient() {
   }, []);
 
   useEffect(() => {
+    if (!accountMenuOpen && !profileOpen) return;
+
     function closeAccountMenu(event: MouseEvent) {
       if (
         !accountMenuRef.current?.contains(event.target as Node) &&
@@ -712,7 +778,7 @@ export function WorkspaceClient() {
       document.removeEventListener("mousedown", closeAccountMenu);
       document.removeEventListener("keydown", closeOnEscape);
     };
-  }, []);
+  }, [accountMenuOpen, profileOpen]);
 
   useEffect(() => {
     if (!isLoading) return;
@@ -822,7 +888,6 @@ export function WorkspaceClient() {
       if (!data.thread) void refreshThreads();
       if (options.clearComposer ?? true) {
         setInputText("");
-        setAttachmentName("");
       }
     } catch (caughtError) {
       setError(
@@ -881,7 +946,6 @@ export function WorkspaceClient() {
     setThreadMessages([]);
     setError("");
     setUpgradeMessage("");
-    setAttachmentName("");
     setInterimTranscript("");
     setVoiceStatus("idle");
     finalTranscriptRef.current = "";
@@ -1069,34 +1133,6 @@ export function WorkspaceClient() {
     }
   }
 
-  async function handleFileSelected(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-
-    if (!file) return;
-    setAttachmentName(file.name);
-
-    if (!file.type.startsWith("text/") && !file.name.endsWith(".txt")) {
-      setError("Attached. For now, only text files can be inserted into the composer.");
-      return;
-    }
-
-    if (file.size > 100_000) {
-      setError("Please attach a text file under 100 KB.");
-      return;
-    }
-
-    try {
-      const text = await file.text();
-      setInputText((current) =>
-        current.trim() ? `${current.trim()}\n\n${text.trim()}` : text.trim(),
-      );
-      setError("");
-    } catch {
-      setError("The attached file could not be read.");
-    }
-  }
-
   async function signOut() {
     try {
       const supabase = createSupabaseBrowserClient();
@@ -1118,7 +1154,7 @@ export function WorkspaceClient() {
   }
 
   return (
-    <main className="flex h-[100dvh] flex-col overflow-hidden bg-[#fbfbfb] text-[#191c1d] md:flex-row">
+    <main className="workspace-page flex h-[100dvh] flex-col overflow-hidden bg-[#fbfbfb] text-[#191c1d] md:flex-row">
       {preferencesFeatureEnabled && preferencesLoaded && onboardingRequired ? (
         <QuickStylesOnboarding
           initialPreferences={preferences}
@@ -1129,8 +1165,8 @@ export function WorkspaceClient() {
           }}
         />
       ) : null}
-      <aside className="hidden w-64 shrink-0 flex-col overflow-y-auto border-r border-[#e1e3e4] bg-white px-6 pb-6 md:flex">
-        <Link className="-mx-6 mb-8 flex h-16 shrink-0 items-center gap-3 border-b border-[#e1e3e4] px-6" href="/">
+      <aside className="workspace-sidebar hidden w-64 shrink-0 flex-col overflow-y-auto border-r border-[#e1e3e4] bg-white px-6 pb-6 md:flex">
+        <Link className="workspace-brand -mx-6 mb-8 flex h-16 shrink-0 items-center gap-3 border-b border-[#e1e3e4] px-6" href="/">
           <Image src="/prophrase-logo-transparent.png" alt="ProPhrase" width={36} height={36} className="h-9 w-9 object-contain" priority />
           <div><p className="text-lg font-bold leading-5 text-primary">ProPhrase</p><p className="mt-0.5 text-[11px] leading-4 text-[#6b7280]">Work message assistant</p></div>
         </Link>
@@ -1144,8 +1180,8 @@ export function WorkspaceClient() {
               <button
                 className={
                   isActive
-                    ? "flex items-center gap-3 rounded-lg bg-[#f3f4f5] px-3 py-2.5 text-left text-primary transition-all"
-                    : "group flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[#6b7280] transition-all hover:bg-[#f3f4f5] hover:text-primary"
+                    ? "workspace-nav-item is-active flex items-center gap-3 rounded-lg bg-[#f3f4f5] px-3 py-2.5 text-left text-primary transition-all"
+                    : "workspace-nav-item group flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[#6b7280] transition-all hover:bg-[#f3f4f5] hover:text-primary"
                 }
                 key={item.view}
                 onClick={() => setActiveView(item.view)}
@@ -1156,7 +1192,7 @@ export function WorkspaceClient() {
               </button>
             );
           })}
-          <Link className="group flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[#6b7280] transition-all hover:bg-[#f3f4f5] hover:text-primary" href="/settings">
+          <Link className="workspace-nav-item group flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[#6b7280] transition-all hover:bg-[#f3f4f5] hover:text-primary" href="/settings">
             <Icon className="text-xl" name="user" />
             <span className="text-sm font-medium leading-5">Settings</span>
           </Link>
@@ -1189,7 +1225,7 @@ export function WorkspaceClient() {
           </div>
         </div>
 
-        <div className="mt-5 rounded-2xl border border-border-subtle bg-white p-4 shadow-sm">
+        <div className="workspace-universal-card mt-5 rounded-2xl border border-border-subtle bg-white p-4 shadow-sm">
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
@@ -1242,7 +1278,7 @@ export function WorkspaceClient() {
         </div>
 
         <div className="mt-auto space-y-3">
-          <div className="rounded-2xl border border-border-subtle bg-surface-container-low p-4">
+          <div className="workspace-credits-card rounded-2xl border border-border-subtle bg-surface-container-low p-4">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-xs font-semibold uppercase leading-4 text-text-muted">
                 {creditBillingEnabled ? "Credits" : usage?.isPro ? "Plan" : "Credits"}
@@ -1334,7 +1370,7 @@ export function WorkspaceClient() {
 
             <button
               aria-expanded={accountMenuOpen}
-              className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors hover:bg-surface-container"
+              className="workspace-account flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors hover:bg-surface-container"
               onClick={() => setAccountMenuOpen((open) => !open)}
               type="button"
             >
@@ -1354,21 +1390,26 @@ export function WorkspaceClient() {
         </div>
       </aside>
 
-      <section className={activeView === "rewrite" && workspaceMode === "rephrase" && !hasConversation && !hasStoredConversation && !isLoading ? "relative flex min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto bg-[#fbfbfb]" : "relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[#fbfbfb]"}>
-        <header className="hidden h-16 shrink-0 items-center justify-between border-b border-[#e1e3e4] bg-white px-8 md:flex">
+      <section className={activeView === "rewrite" && workspaceMode === "rephrase" && !hasConversation && !hasStoredConversation && !isLoading ? "workspace-main relative flex min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto bg-[#fbfbfb]" : "workspace-main relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[#fbfbfb]"}>
+        <header className="workspace-header hidden h-16 shrink-0 items-center justify-between border-b border-[#e1e3e4] bg-white px-8 md:flex">
           <div className="flex items-center">
-            {activeView === "rewrite" ? <nav className="flex rounded-full bg-[#f3f4f5] p-1" aria-label="Workspace mode">
+            {activeView === "rewrite" ? <nav className="workspace-mode-switch flex rounded-full bg-[#f3f4f5] p-1" aria-label="Workspace mode">
               <button aria-pressed={workspaceMode === "rephrase"} className={workspaceMode === "rephrase" ? "min-h-9 rounded-full bg-black px-6 text-sm font-semibold text-white" : "min-h-9 rounded-full px-6 text-sm font-semibold text-[#6b7280] hover:bg-white hover:text-primary"} onClick={() => setWorkspaceMode("rephrase")} type="button">Rephrase</button>
               <button aria-pressed={workspaceMode === "outcome"} className={workspaceMode === "outcome" ? "min-h-9 rounded-full bg-black px-6 text-sm font-semibold text-white" : "min-h-9 rounded-full px-6 text-sm font-semibold text-[#6b7280] hover:bg-white hover:text-primary"} onClick={() => setWorkspaceMode("outcome")} type="button">Outcome Assistant</button>
             </nav> : null}
           </div>
           <div className="flex items-center gap-2">
+            {creditBalance ? (
+              <Link className="workspace-header-credit" href="/account/billing">
+                <span aria-hidden="true" />
+                {creditBalance.available} credits left
+              </Link>
+            ) : null}
             <button aria-label="Open history" className="rounded-full p-2 text-[#6b7280] hover:bg-[#f3f4f5]" onClick={() => setActiveView("history")} type="button"><Icon className="text-xl" name="history" /></button>
-            <Link aria-label="Open settings" className="rounded-full p-2 text-[#6b7280] hover:bg-[#f3f4f5]" href="/settings"><Icon className="text-xl" name="user" /></Link>
           </div>
         </header>
         <div
-          className="shrink-0 border-b border-border-subtle bg-surface/95 px-4 py-3 backdrop-blur md:hidden"
+          className="workspace-mobile-header shrink-0 border-b border-border-subtle bg-surface/95 px-4 py-3 backdrop-blur md:hidden"
           ref={mobileAccountMenuRef}
         >
           <div className="flex items-center justify-between gap-3">
@@ -1518,12 +1559,13 @@ export function WorkspaceClient() {
               />
             ) : (
               <>
-            {!hasConversation && !hasStoredConversation && !isLoading ? <div className="shrink-0 px-4 pt-10 text-center md:px-10 md:pt-16">
-              <h1 className="text-4xl font-bold tracking-tight text-primary md:text-[56px] md:leading-[1.1]">Rewrite work messages with confidence.</h1>
-              <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-[#6b7280] md:text-lg">Paste your draft, choose a style, and get a clear professional message in seconds.</p>
+            {!hasConversation && !hasStoredConversation && !isLoading ? <div className="workspace-intro shrink-0 px-4 pt-10 text-center md:px-10 md:pt-16">
+              <span className="workspace-eyebrow"><Icon name="spark" /> Write it rough. Send it right.</span>
+              <h1 className="text-4xl font-bold tracking-tight text-primary md:text-[56px] md:leading-[1.1]">Turn the rough thought into the right message.</h1>
+              <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-[#6b7280] md:text-lg">Paste what you mean, choose how it should sound, and get a message ready to send.</p>
             </div> : null}
-            <div className={hasConversation || hasStoredConversation || isLoading ? "shrink-0 border-b border-[#e1e3e4] bg-white px-4 py-3 md:px-10" : "shrink-0 px-4 pt-10 md:px-10 md:pt-14"}>
-              <div className={hasConversation || hasStoredConversation || isLoading ? "mx-auto max-w-3xl" : "mx-auto max-w-4xl rounded-t-2xl border border-b-0 border-[#e1e3e4] bg-white px-5 pb-4 pt-6 shadow-[0_1px_3px_rgba(0,0,0,0.05)] md:px-8 md:pt-8"}>
+            <div className={hasConversation || hasStoredConversation || isLoading ? "workspace-style-section is-conversation shrink-0 border-b border-[#e1e3e4] bg-white px-4 py-3 md:px-10" : "workspace-style-section shrink-0 px-4 pt-10 md:px-10 md:pt-14"}>
+              <div className={hasConversation || hasStoredConversation || isLoading ? "workspace-style-card mx-auto max-w-4xl" : "workspace-style-card mx-auto max-w-4xl rounded-t-2xl border border-b-0 border-[#e1e3e4] bg-white px-5 pb-4 pt-6 shadow-[0_1px_3px_rgba(0,0,0,0.05)] md:px-8 md:pt-8"}>
             {preferencesFeatureEnabled ? <QuickStylesBar
               disabled={isLoading}
               onPreferencesChange={setPreferences}
@@ -1538,14 +1580,14 @@ export function WorkspaceClient() {
               </div>
             </div>
 
-            <div className={hasConversation || hasStoredConversation || isLoading ? "flex-1 overflow-y-auto px-4 py-6 pb-40 md:px-10 md:py-8 md:pb-48" : "shrink-0 px-4 md:px-10"}>
-              <div className="mx-auto flex max-w-3xl flex-col gap-8">
+            <div className={hasConversation || hasStoredConversation || isLoading ? "workspace-conversation flex-1 overflow-y-auto px-4 py-6 pb-40 md:px-10 md:py-8 md:pb-48" : "workspace-conversation shrink-0 px-4 md:px-10"}>
+              <div className="mx-auto flex max-w-4xl flex-col gap-8">
                 {hasStoredConversation ? (
                   <>
                     {threadMessages.map((message) =>
                       message.role === "user" ? (
                         <div className="flex flex-col items-end gap-2" key={message.id}>
-                          <div className="message-shadow max-w-[92%] rounded-2xl rounded-tr-none border border-border-subtle bg-surface-container px-4 py-3 md:max-w-[85%] md:px-6 md:py-4">
+                          <div className="workspace-user-message message-shadow max-w-[92%] rounded-2xl rounded-tr-none border border-border-subtle bg-surface-container px-4 py-3 md:max-w-[85%] md:px-6 md:py-4">
                             <p className="whitespace-pre-wrap text-base leading-6 text-[#1a1c1a]">
                               {message.content}
                             </p>
@@ -1557,19 +1599,19 @@ export function WorkspaceClient() {
                       ) : (
                         <div className="flex flex-col items-start gap-2" key={message.id}>
                           <div className="mb-1 flex items-center gap-2">
-                            <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary text-white">
+                            <div className="workspace-ai-mark flex h-6 w-6 items-center justify-center rounded-md bg-primary text-white">
                               <Icon className="text-sm" name="spark" />
                             </div>
-                            <span className="text-xs font-bold uppercase leading-4 text-primary">
+                            <span className="workspace-ai-label text-xs font-bold uppercase leading-4 text-primary">
                               ProPhrase AI
                             </span>
                           </div>
-                          <div className="message-shadow relative max-w-[92%] overflow-hidden rounded-2xl rounded-tl-none border border-border-subtle bg-white px-4 py-3 md:max-w-[85%] md:px-6 md:py-4">
+                          <div className="workspace-ai-message message-shadow relative max-w-[92%] overflow-hidden rounded-2xl rounded-tl-none border border-border-subtle bg-white px-4 py-3 md:max-w-[85%] md:px-6 md:py-4">
                             <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-ai-purple/5 to-transparent" />
-                            <p className="relative z-10 whitespace-pre-wrap text-base leading-relaxed text-[#1a1c1a]">
+                            <p className="workspace-ai-copy relative z-10 whitespace-pre-wrap text-base leading-relaxed text-[#1a1c1a]">
                               {message.content}
                             </p>
-                            <div className="relative z-10 mt-4 flex flex-wrap items-center gap-3 border-t border-border-subtle pt-3">
+                            <div className="workspace-message-actions relative z-10 mt-4 flex flex-wrap items-center gap-3 border-t border-border-subtle pt-3">
                               <button
                                 className="flex items-center gap-1 text-text-muted transition-colors hover:text-primary"
                                 onClick={() => void copyToLocalClipboard(message.content)}
@@ -1601,7 +1643,7 @@ export function WorkspaceClient() {
                       <>
                         {lastInput ? (
                           <div className="flex flex-col items-end gap-2">
-                            <div className="message-shadow max-w-[92%] rounded-2xl rounded-tr-none border border-border-subtle bg-surface-container px-4 py-3 md:max-w-[85%] md:px-6 md:py-4">
+                            <div className="workspace-user-message message-shadow max-w-[92%] rounded-2xl rounded-tr-none border border-border-subtle bg-surface-container px-4 py-3 md:max-w-[85%] md:px-6 md:py-4">
                               <p className="whitespace-pre-wrap text-base leading-6 text-[#1a1c1a]">
                                 {lastInput}
                               </p>
@@ -1613,14 +1655,14 @@ export function WorkspaceClient() {
                         ) : null}
                         <div className="flex flex-col items-start gap-2">
                           <div className="mb-1 flex items-center gap-2">
-                            <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary text-white">
+                            <div className="workspace-ai-mark flex h-6 w-6 items-center justify-center rounded-md bg-primary text-white">
                               <Icon className="text-sm" name="spark" />
                             </div>
-                            <span className="text-xs font-bold uppercase leading-4 text-primary">
+                            <span className="workspace-ai-label text-xs font-bold uppercase leading-4 text-primary">
                               ProPhrase AI
                             </span>
                           </div>
-                          <div className="message-shadow max-w-[92%] rounded-2xl rounded-tl-none border border-border-subtle bg-white px-4 py-3 md:max-w-[85%] md:px-6 md:py-4">
+                          <div className="workspace-ai-message message-shadow max-w-[92%] rounded-2xl rounded-tl-none border border-border-subtle bg-white px-4 py-3 md:max-w-[85%] md:px-6 md:py-4">
                             <p className="text-base leading-relaxed text-[#1a1c1a]">
                               {processingStep}
                               <span className="ml-1 inline-flex w-5 justify-between align-middle">
@@ -1638,7 +1680,7 @@ export function WorkspaceClient() {
                   <>
                     {lastInput ? (
                       <div className="flex flex-col items-end gap-2">
-                        <div className="message-shadow max-w-[92%] rounded-2xl rounded-tr-none border border-border-subtle bg-surface-container px-4 py-3 md:max-w-[85%] md:px-6 md:py-4">
+                        <div className="workspace-user-message message-shadow max-w-[92%] rounded-2xl rounded-tr-none border border-border-subtle bg-surface-container px-4 py-3 md:max-w-[85%] md:px-6 md:py-4">
                           <p className="whitespace-pre-wrap text-base leading-6 text-[#1a1c1a]">
                             {lastInput}
                           </p>
@@ -1652,16 +1694,16 @@ export function WorkspaceClient() {
                     {isLoading || outputText ? (
                       <div className="flex flex-col items-start gap-2">
                         <div className="mb-1 flex items-center gap-2">
-                          <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary text-white">
+                          <div className="workspace-ai-mark flex h-6 w-6 items-center justify-center rounded-md bg-primary text-white">
                             <Icon className="text-sm" name="spark" />
                           </div>
-                          <span className="text-xs font-bold uppercase leading-4 text-primary">
+                          <span className="workspace-ai-label text-xs font-bold uppercase leading-4 text-primary">
                             ProPhrase AI
                           </span>
                         </div>
-                        <div className="message-shadow group relative max-w-[92%] overflow-hidden rounded-2xl rounded-tl-none border border-border-subtle bg-white px-4 py-3 md:max-w-[85%] md:px-6 md:py-4">
+                        <div className="workspace-ai-message message-shadow group relative max-w-[92%] overflow-hidden rounded-2xl rounded-tl-none border border-border-subtle bg-white px-4 py-3 md:max-w-[85%] md:px-6 md:py-4">
                           <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-ai-purple/5 to-transparent" />
-                          <p className="relative z-10 whitespace-pre-wrap text-base leading-relaxed text-[#1a1c1a]">
+                          <p className="workspace-ai-copy relative z-10 whitespace-pre-wrap text-base leading-relaxed text-[#1a1c1a]">
                             {isLoading ? processingStep : outputText}
                           </p>
                           {isLoading ? (
@@ -1670,7 +1712,7 @@ export function WorkspaceClient() {
                             </div>
                           ) : null}
                           {outputText ? (
-                            <div className="mt-4 flex items-center gap-3 border-t border-border-subtle pt-3 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
+                            <div className="workspace-message-actions mt-4 flex items-center gap-3 border-t border-border-subtle pt-3 opacity-100 transition-opacity">
                               <button
                                 className="flex items-center gap-1 text-text-muted transition-colors hover:text-primary"
                                 onClick={() => void copyToLocalClipboard(outputText)}
@@ -1733,7 +1775,7 @@ export function WorkspaceClient() {
                 {outputText ? (
                   <div className="mt-4 flex flex-wrap justify-center gap-3">
                     <button
-                      className="flex items-center gap-1 rounded-full border border-ai-purple/20 bg-ai-purple/10 px-3 py-1.5 text-ai-purple transition-all hover:bg-ai-purple/20 disabled:opacity-60"
+                      className="workspace-suggestion flex items-center gap-1 rounded-full border border-ai-purple/20 bg-ai-purple/10 px-3 py-1.5 text-ai-purple transition-all hover:bg-ai-purple/20 disabled:opacity-60"
                       disabled={isLoading}
                       onClick={() =>
                         applySuggestion(
@@ -1749,7 +1791,7 @@ export function WorkspaceClient() {
                       </span>
                     </button>
                     <button
-                      className="flex items-center gap-1 rounded-full border border-ai-purple/20 bg-ai-purple/10 px-3 py-1.5 text-ai-purple transition-all hover:bg-ai-purple/20 disabled:opacity-60"
+                      className="workspace-suggestion flex items-center gap-1 rounded-full border border-ai-purple/20 bg-ai-purple/10 px-3 py-1.5 text-ai-purple transition-all hover:bg-ai-purple/20 disabled:opacity-60"
                       disabled={isLoading}
                       onClick={() =>
                         applySuggestion(
@@ -1807,10 +1849,10 @@ export function WorkspaceClient() {
             </div>
 
             <div
-              className={hasConversation || hasStoredConversation || isLoading ? "pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-3 md:p-8" : "pointer-events-none relative z-10 mx-auto flex w-full max-w-4xl justify-center px-4 md:px-0"}
+              className={hasConversation || hasStoredConversation || isLoading ? "workspace-composer-shell pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-3 md:p-8" : "workspace-composer-shell pointer-events-none relative z-10 mx-auto flex w-full max-w-4xl justify-center px-4 md:px-0"}
               id="composer"
             >
-              <div className={hasConversation || hasStoredConversation || isLoading ? "glass-effect pointer-events-auto flex w-full max-w-3xl items-center gap-1.5 rounded-[24px] border border-border-subtle p-2.5 shadow-2xl ring-1 ring-black/5 transition-all focus-within:border-black md:gap-2 md:rounded-[28px] md:p-3" : "pointer-events-auto relative flex w-full flex-col rounded-b-2xl border border-t-0 border-[#e1e3e4] bg-white px-5 pb-6 pt-3 shadow-[0_1px_3px_rgba(0,0,0,0.05)] transition-all focus-within:border-black md:min-h-[300px] md:px-8 md:pb-8"}>
+              <div className={hasConversation || hasStoredConversation || isLoading ? "workspace-composer is-conversation glass-effect pointer-events-auto flex w-full max-w-4xl items-center gap-1.5 rounded-[24px] border border-border-subtle p-2.5 shadow-2xl ring-1 ring-black/5 transition-all focus-within:border-black md:gap-2 md:rounded-[28px] md:p-3" : "workspace-composer pointer-events-auto relative flex w-full flex-col rounded-b-2xl border border-t-0 border-[#e1e3e4] bg-white px-5 pb-6 pt-3 shadow-[0_1px_3px_rgba(0,0,0,0.05)] transition-all focus-within:border-black md:min-h-[300px] md:px-8 md:pb-8"}>
                 <button
                   aria-label={isListening ? "Stop voice input" : "Start voice input"}
                   aria-pressed={isListening}
@@ -1842,11 +1884,6 @@ export function WorkspaceClient() {
                     rows={hasConversation || hasStoredConversation ? 1 : 6}
                     value={inputText}
                   />
-                  {attachmentName ? (
-                    <p className="truncate px-2 text-xs font-medium leading-4 text-text-muted">
-                      Attached: {attachmentName}
-                    </p>
-                  ) : null}
                   {voiceStatus !== "idle" || interimTranscript ? (
                     <p
                       aria-live="polite"
@@ -1866,21 +1903,6 @@ export function WorkspaceClient() {
                   ) : null}
                 </div>
                 <div className={hasConversation || hasStoredConversation || isLoading ? "flex shrink-0 items-center gap-2" : "mt-4 flex w-full shrink-0 items-center justify-end gap-2 border-t border-border-subtle pt-4"}>
-                  <input
-                    accept=".txt,text/plain,text/markdown,.md"
-                    className="hidden"
-                    onChange={(event) => void handleFileSelected(event)}
-                    ref={fileInputRef}
-                    type="file"
-                  />
-                  <button
-                    aria-label="Attach file"
-                    className={hasConversation || hasStoredConversation || isLoading ? "hidden rounded-2xl p-3 text-text-muted transition-all hover:bg-surface-container hover:text-primary sm:inline-flex" : "rounded-lg p-2.5 text-text-muted transition-all hover:bg-surface-container hover:text-primary"}
-                    onClick={() => fileInputRef.current?.click()}
-                    type="button"
-                  >
-                    <Icon className="text-2xl" name="attach" />
-                  </button>
                   <button
                     className={hasConversation || hasStoredConversation || isLoading ? "flex items-center gap-2 rounded-2xl bg-primary px-3 py-3 text-sm font-medium leading-5 text-white shadow-lg transition-all hover:scale-[1.02] active:scale-95 disabled:cursor-wait disabled:opacity-60 md:px-5" : "flex h-12 w-12 items-center justify-center rounded-xl bg-black p-0 text-sm font-semibold text-white shadow-md transition-all hover:bg-neutral-800 active:scale-95 disabled:cursor-wait disabled:opacity-60"}
                     disabled={isLoading}
@@ -1894,10 +1916,10 @@ export function WorkspaceClient() {
               </div>
             </div>
             {!hasConversation && !hasStoredConversation && !isLoading ? (
-              <div className="mx-auto grid w-full max-w-4xl shrink-0 grid-cols-1 gap-6 px-4 pt-8 md:grid-cols-3 md:px-0 md:pt-12">
-                <div className="flex flex-col gap-4 rounded-2xl border border-[#e1e3e4] bg-white p-7 shadow-[0_1px_3px_rgba(0,0,0,0.05)]"><span className="flex h-10 w-10 items-center justify-center rounded-lg bg-black/5 text-black"><Icon name="magic" /></span><div><p className="text-base font-bold text-primary">Understands your context</p><p className="mt-2 text-sm leading-6 text-[#6b7280]">Keeps the meaning while adapting your message to the selected style.</p></div></div>
-                <div className="flex flex-col gap-4 rounded-2xl border border-[#e1e3e4] bg-white p-7 shadow-[0_1px_3px_rgba(0,0,0,0.05)]"><span className="flex h-10 w-10 items-center justify-center rounded-lg bg-black/5 text-black"><Icon name="spark" /></span><div><p className="text-base font-bold text-primary">Writes naturally</p><p className="mt-2 text-sm leading-6 text-[#6b7280]">Produces clear language that sounds professional without feeling robotic.</p></div></div>
-                <div className="flex flex-col gap-4 rounded-2xl border border-[#e1e3e4] bg-white p-7 shadow-[0_1px_3px_rgba(0,0,0,0.05)]"><span className="flex h-10 w-10 items-center justify-center rounded-lg bg-black/5 text-black"><Icon name="bolt" /></span><div><p className="text-base font-bold text-primary">Delivers quickly</p><p className="mt-2 text-sm leading-6 text-[#6b7280]">Returns a polished message in seconds so you can keep working.</p></div></div>
+              <div className="workspace-benefit-grid mx-auto grid w-full max-w-4xl shrink-0 grid-cols-1 gap-6 px-4 pt-8 md:grid-cols-3 md:px-0 md:pt-12">
+                <div className="workspace-benefit-card flex flex-col gap-4 rounded-2xl border border-[#e1e3e4] bg-white p-7 shadow-[0_1px_3px_rgba(0,0,0,0.05)]"><span className="flex h-10 w-10 items-center justify-center rounded-lg bg-black/5 text-black"><Icon name="magic" /></span><div><p className="text-base font-bold text-primary">Meaning stays intact</p><p className="mt-2 text-sm leading-6 text-[#6b7280]">Your facts and intent stay fixed while the wording becomes clearer.</p></div></div>
+                <div className="workspace-benefit-card flex flex-col gap-4 rounded-2xl border border-[#e1e3e4] bg-white p-7 shadow-[0_1px_3px_rgba(0,0,0,0.05)]"><span className="flex h-10 w-10 items-center justify-center rounded-lg bg-black/5 text-black"><Icon name="spark" /></span><div><p className="text-base font-bold text-primary">Sounds like you</p><p className="mt-2 text-sm leading-6 text-[#6b7280]">Choose a style without writing a long prompt or sounding robotic.</p></div></div>
+                <div className="workspace-benefit-card flex flex-col gap-4 rounded-2xl border border-[#e1e3e4] bg-white p-7 shadow-[0_1px_3px_rgba(0,0,0,0.05)]"><span className="flex h-10 w-10 items-center justify-center rounded-lg bg-black/5 text-black"><Icon name="bolt" /></span><div><p className="text-base font-bold text-primary">Ready everywhere</p><p className="mt-2 text-sm leading-6 text-[#6b7280]">Copy the finished message here and paste it on any signed-in device.</p></div></div>
               </div>
             ) : null}
             {!hasConversation && !hasStoredConversation && !isLoading ? (
@@ -1912,7 +1934,7 @@ export function WorkspaceClient() {
         ) : null}
 
         {activeView === "history" ? (
-          <div className="h-full overflow-y-auto px-4 py-6 md:px-10 md:py-10">
+          <div className="workspace-subview h-full overflow-y-auto px-4 py-6 md:px-10 md:py-10">
             <div className="mx-auto max-w-3xl">
               <div className="mb-6 flex items-center justify-between gap-4">
                 <div>
@@ -1932,7 +1954,7 @@ export function WorkspaceClient() {
               <div className="space-y-2">
                 {threads.map((thread) => (
                   <button
-                    className="flex w-full items-center justify-between gap-4 rounded-2xl border border-border-subtle bg-white px-5 py-4 text-left transition-colors hover:bg-surface-container-low"
+                    className="workspace-list-card flex w-full items-center justify-between gap-4 rounded-2xl border border-border-subtle bg-white px-5 py-4 text-left transition-colors hover:bg-surface-container-low"
                     key={thread.id}
                     onClick={() => openHistoryThread(thread)}
                     type="button"
@@ -1959,7 +1981,7 @@ export function WorkspaceClient() {
         ) : null}
 
         {activeView === "templates" ? (
-          <div className="h-full overflow-y-auto px-4 py-6 md:px-10 md:py-10">
+          <div className="workspace-subview h-full overflow-y-auto px-4 py-6 md:px-10 md:py-10">
             <div className="mx-auto max-w-4xl">
               <h1 className="text-3xl font-bold text-primary">Templates</h1>
               <p className="mt-2 text-sm leading-6 text-text-muted">
@@ -1968,7 +1990,7 @@ export function WorkspaceClient() {
               <div className="mt-8 grid gap-4 sm:grid-cols-2">
                 {templates.map((template) => (
                   <button
-                    className="rounded-2xl border border-border-subtle bg-white p-5 text-left transition-colors hover:bg-surface-container-low"
+                    className="workspace-list-card rounded-2xl border border-border-subtle bg-white p-5 text-left transition-colors hover:bg-surface-container-low"
                     key={template.id}
                     onClick={() => applyTemplate(template)}
                     type="button"

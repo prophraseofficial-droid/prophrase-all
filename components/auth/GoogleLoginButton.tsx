@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   getAuthCallbackUrl,
+  getSafeInternalPath,
   storeAuthRedirectContext,
 } from "@/lib/app-config";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -78,7 +79,9 @@ export function GoogleLoginButton() {
     return authError ? "Unable to complete sign-in. Please try again." : "";
   });
   const [googleButtonReady, setGoogleButtonReady] = useState(false);
-  const [fallbackAvailable, setFallbackAvailable] = useState(false);
+  const [fallbackAvailable, setFallbackAvailable] = useState(
+    () => typeof window !== "undefined" && Boolean(window.prophraseDesktop?.isDesktop),
+  );
   const isDesktop =
     typeof window !== "undefined" && Boolean(window.prophraseDesktop?.isDesktop);
 
@@ -86,16 +89,11 @@ export function GoogleLoginButton() {
     const params = new URLSearchParams(window.location.search);
     const next = params.get("next");
 
-    if (!next || !next.startsWith("/") || next.startsWith("//")) {
-      return "/workspace";
-    }
-
-    return next;
+    return getSafeInternalPath(next);
   }
 
   useEffect(() => {
     if (window.prophraseDesktop?.isDesktop) {
-      setFallbackAvailable(true);
       return;
     }
     if (!googleClientId || !googleButtonRef.current) return;

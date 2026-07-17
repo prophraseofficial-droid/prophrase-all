@@ -89,7 +89,7 @@ export async function POST(request: Request) {
       userId: user.id,
       deviceId: parsed.data.deviceId,
       label: parsed.data.deviceLabel,
-      platform: "web",
+      platform: parsed.data.platform,
       capabilities: ["universal-copy"],
     });
 

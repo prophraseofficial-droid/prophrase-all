@@ -8,6 +8,7 @@ import {
   authenticateExtensionApiToken,
   isProPhraseApiToken,
 } from "@/lib/security/api-tokens";
+import { isExtensionTokenRouteAllowed } from "@/lib/security/auth-scope";
 
 function getBearerToken(request?: Request) {
   const authorization = request?.headers.get("authorization");
@@ -29,6 +30,16 @@ export async function requireUser(request?: Request) {
   try {
     const bearerToken = getBearerToken(request);
     if (bearerToken && isProPhraseApiToken(bearerToken)) {
+      if (!isExtensionTokenRouteAllowed(request)) {
+        return {
+          user: null,
+          response: apiError(
+            "UNAUTHORIZED",
+            "This ProPhrase device token is not permitted for that account operation.",
+            403,
+          ),
+        };
+      }
       const user = await authenticateExtensionApiToken(bearerToken);
       if (!user) {
         return {

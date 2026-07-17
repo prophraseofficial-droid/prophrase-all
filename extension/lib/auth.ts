@@ -3,7 +3,7 @@ import { APP_URL } from "./api";
 
 const TOKEN_KEY = "prophrase_api_token";
 
-function browserName() {
+export function browserName() {
   const agent = navigator.userAgent;
   if (agent.includes("Firefox/")) return "Firefox";
   if (agent.includes("Edg/")) return "Edge";
@@ -38,6 +38,8 @@ export async function connect() {
   return token;
 }
 
-export async function clearToken() {
+export async function clearToken(expectedToken?: string) {
+  if (expectedToken && await getToken() !== expectedToken) return false;
   await browser.storage.local.remove(TOKEN_KEY);
+  return true;
 }

@@ -80,6 +80,26 @@ test("natural contractions preserve negation while correcting grammar", () => {
   );
 });
 
+test("sentence starters and punctuation changes do not become protected facts", () => {
+  const originalText = "Hey,\n\nMy name is Zeno — I'm the founder and CEO of Resend.";
+  const metadata = preprocessMessage(originalText);
+
+  assert.equal(metadata.protectedValues.includes("Hey"), false);
+  assert.equal(metadata.protectedValues.includes("My"), false);
+  assert.ok(metadata.protectedValues.includes("Zeno"));
+  assert.ok(metadata.protectedValues.includes("Resend"));
+
+  const failures = validateSemanticInvariants({
+    originalText,
+    outputText: "I'm Zeno, founder and CEO of Resend.",
+    mode: "Shorter",
+  });
+  assert.equal(
+    failures.some((failure) => failure.code === "protected_value_changed"),
+    false,
+  );
+});
+
 test("mode-specific unsafe additions are rejected", () => {
   assert.ok(validateSemanticInvariants({
     originalText: "PFM-22186 fails on Version 7.4.",

@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { CreditBalance } from "@/lib/billing/types";
 import { trackBillingEvent } from "@/lib/billing/analytics";
+import { classifyPlanChange } from "@/lib/billing/plan-change";
 
 type Account = {
   plan: "free" | "plus" | "pro";
@@ -11,17 +12,63 @@ type Account = {
   subscriptionStatus: string;
   currentPeriodEnd: string | null;
   cancelAtPeriodEnd: boolean;
+  pendingPlan: "plus" | "pro" | null;
+  pendingBillingInterval: "monthly" | "annual" | null;
+  planChangeEffectiveAt: string | null;
 };
 
 export function BillingAccountClient({ account, balance }: { account: Account; balance: CreditBalance }) {
   const [current, setCurrent] = useState(account);
+  const [creditBalance, setCreditBalance] = useState(balance);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [confirmCancel, setConfirmCancel] = useState(false);
   const planName = current.plan === "free" ? "Free" : current.plan === "plus" ? "Plus" : "Pro";
-  const refreshDate = balance.nextRefreshAt
-    ? new Intl.DateTimeFormat("en-IN", { dateStyle: "medium" }).format(new Date(balance.nextRefreshAt))
+  const pendingPlanName = current.pendingPlan === "plus" ? "Plus" : current.pendingPlan === "pro" ? "Pro" : null;
+  const pendingChangeTiming =
+    current.plan !== "free" && current.billingInterval !== "none" &&
+    current.pendingPlan && current.pendingBillingInterval
+      ? classifyPlanChange(
+          { plan: current.plan, interval: current.billingInterval },
+          { plan: current.pendingPlan, interval: current.pendingBillingInterval },
+        )
+      : null;
+  const refreshDate = creditBalance.nextRefreshAt
+    ? new Intl.DateTimeFormat("en-IN", { dateStyle: "medium" }).format(new Date(creditBalance.nextRefreshAt))
     : "Not scheduled";
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("plan_change") !== "processing") return;
+    let stopped = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let attempts = 0;
+
+    async function refreshUpgrade() {
+      attempts += 1;
+      try {
+        const response = await fetch("/api/billing/subscription-status", {
+          cache: "no-store",
+        });
+        const data = await response.json() as Account & { balance?: CreditBalance };
+        if (response.ok && !stopped) {
+          setCurrent(data);
+          if (data.balance) setCreditBalance(data.balance);
+          if (!data.pendingPlan || attempts >= 30) return;
+        }
+      } catch {
+        // A transient poll failure should not hide an upgrade confirmed moments later.
+      }
+      if (!stopped && attempts < 30) {
+        timeoutId = setTimeout(() => void refreshUpgrade(), 1_000);
+      }
+    }
+
+    void refreshUpgrade();
+    return () => {
+      stopped = true;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, []);
 
   async function mutate(path: "/api/billing/cancel" | "/api/billing/resume") {
     setBusy(true); setMessage("");
@@ -56,6 +103,13 @@ export function BillingAccountClient({ account, balance }: { account: Account; b
             <h2 className="mt-2 text-3xl font-semibold">{planName}</h2>
             <p className="mt-2 text-sm text-text-muted">{current.billingInterval === "none" ? "No paid subscription" : `${current.billingInterval} billing · ${current.subscriptionStatus.replaceAll("_", " ")}`}</p>
             {current.currentPeriodEnd ? <p className="mt-4 text-sm">Current access through {new Intl.DateTimeFormat("en-IN", { dateStyle: "long" }).format(new Date(current.currentPeriodEnd))}</p> : null}
+            {pendingPlanName && current.pendingBillingInterval ? (
+              <p className="mt-4 border border-border-subtle bg-surface px-4 py-3 text-sm" role="status">
+                {pendingPlanName} · {current.pendingBillingInterval} is {pendingChangeTiming === "cycle_end" && current.planChangeEffectiveAt
+                  ? `scheduled for ${new Intl.DateTimeFormat("en-IN", { dateStyle: "long" }).format(new Date(current.planChangeEffectiveAt))}`
+                  : "being activated after Razorpay confirms the prorated payment"}.
+              </p>
+            ) : null}
             <div className="mt-6 flex flex-wrap gap-3">
               <Link className="rounded-full bg-primary px-5 py-3 text-sm font-semibold text-white" href="/pricing">Compare plans</Link>
               {current.plan !== "free" && !current.cancelAtPeriodEnd ? <button className="rounded-full border border-border-subtle px-5 py-3 text-sm font-semibold" disabled={busy} onClick={() => setConfirmCancel(true)} type="button">Cancel at period end</button> : null}
@@ -63,8 +117,8 @@ export function BillingAccountClient({ account, balance }: { account: Account; b
             </div>
           </div>
           <div className="rounded-[24px] border border-border-subtle bg-white p-7">
-            <div className="flex items-end justify-between"><div><p className="text-xs font-semibold uppercase text-text-muted">Available credits</p><h2 className="mt-2 text-3xl font-semibold" aria-live="polite">{balance.available}</h2></div><p className="text-sm font-semibold">of {balance.allowance}</p></div>
-            <div className="mt-5 h-2 overflow-hidden rounded-full bg-surface-container" role="progressbar" aria-label={`${balance.available} of ${balance.allowance} credits remaining`} aria-valuemax={balance.allowance} aria-valuemin={0} aria-valuenow={balance.available}><div className="h-full bg-primary" style={{ width: `${Math.max(0, Math.min(100, balance.available / Math.max(1, balance.allowance) * 100))}%` }} /></div>
+            <div className="flex items-end justify-between"><div><p className="text-xs font-semibold uppercase text-text-muted">Available credits</p><h2 className="mt-2 text-3xl font-semibold" aria-live="polite">{creditBalance.available}</h2></div><p className="text-sm font-semibold">of {creditBalance.allowance}</p></div>
+            <div className="mt-5 h-2 overflow-hidden rounded-full bg-surface-container" role="progressbar" aria-label={`${creditBalance.available} of ${creditBalance.allowance} credits remaining`} aria-valuemax={creditBalance.allowance} aria-valuemin={0} aria-valuenow={creditBalance.available}><div className="h-full bg-primary" style={{ width: `${Math.max(0, Math.min(100, creditBalance.available / Math.max(1, creditBalance.allowance) * 100))}%` }} /></div>
             <p className="mt-4 text-sm text-text-muted">Credits refresh on {refreshDate}. Unused credits do not roll over.</p>
             <Link className="mt-6 inline-flex text-sm font-semibold underline" href="/account/billing/usage">View credit activity</Link>
           </div>

@@ -97,22 +97,24 @@ export async function POST(request: Request) {
         return apiError("THREAD_NOT_FOUND", "Thread not found.", 404);
       }
 
-      const followupLimit = await canSendFollowupForProfile(
-        threadId,
-        user.id,
-        planData.profile,
-      );
-      if (!followupLimit.allowed) {
-        return apiError(
-          followupLimit.isPro
-            ? "PRO_FAIR_USE_LIMIT_REACHED"
-            : "FREE_FOLLOWUP_LIMIT_REACHED",
-          followupLimit.isPro
-            ? "Thread fair-use limit reached. Please start a new thread."
-            : "Free threads include 2 follow-ups. Upgrade to Pro for longer conversations.",
-          followupLimit.isPro ? 429 : 402,
-          { upgrade: { monthly: "₹99/month", yearly: "₹899/year" } },
+      if (!creditEnforcementActive) {
+        const followupLimit = await canSendFollowupForProfile(
+          threadId,
+          user.id,
+          planData.profile,
         );
+        if (!followupLimit.allowed) {
+          return apiError(
+            followupLimit.isPro
+              ? "PRO_FAIR_USE_LIMIT_REACHED"
+              : "FREE_FOLLOWUP_LIMIT_REACHED",
+            followupLimit.isPro
+              ? "Thread fair-use limit reached. Please start a new thread."
+              : "Free threads include 2 follow-ups. Upgrade to Pro for longer conversations.",
+            followupLimit.isPro ? 429 : 402,
+            { upgrade: { monthly: "₹99/month", yearly: "₹899/year" } },
+          );
+        }
       }
 
       const { data: messages, error: messagesError } = await supabase
@@ -129,7 +131,10 @@ export async function POST(request: Request) {
         content: String(message.content),
       }));
     } else {
-      if (planData.usage.threadCount >= planData.usage.threadLimit) {
+      if (
+        !creditEnforcementActive &&
+        planData.usage.threadCount >= planData.usage.threadLimit
+      ) {
         return apiError(
           planData.usage.isPro
             ? "PRO_FAIR_USE_LIMIT_REACHED"

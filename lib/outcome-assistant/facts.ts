@@ -21,6 +21,16 @@ const factPatterns: RegExp[] = [
 const numberLikePattern =
   /(?:₹\s?)?\b\d[\d,]*(?:\.\d+)?(?:%|\s?(?:am|pm|AM|PM))?|(?:Rs\.?|INR|USD|EUR|GBP)\s?\d[\d,]*(?:\.\d+)?/g;
 
+// The capitalized-name pattern also sees ordinary words at the start of a
+// sentence. These words may be legitimately removed or restructured by a
+// rewrite and must not become exact-match protected facts.
+const genericCapitalizedWords = new Set([
+  "a", "an", "the", "my", "our", "your", "his", "her", "its", "their",
+  "we", "you", "he", "she", "it", "they", "this", "that", "these", "those",
+  "hi", "hello", "hey", "dear", "thanks", "thank", "please",
+  "can", "could", "will", "would", "may", "might", "should",
+]);
+
 function cleanFact(value: string) {
   return value.trim().replace(/^[,.;:()[\]{}"']+|[,.;:()[\]{}"']+$/g, "");
 }
@@ -46,7 +56,9 @@ export function extractLockedFactCandidates(text: string) {
     Array.from(text.matchAll(pattern), (match) => match[0]),
   );
 
-  return dedupeValues(values).slice(0, 18);
+  return dedupeValues(values)
+    .filter((value) => value.includes(" ") || !genericCapitalizedWords.has(value.toLowerCase()))
+    .slice(0, 18);
 }
 
 export function extractNumberLikeValues(text: string) {

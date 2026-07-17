@@ -252,6 +252,7 @@ export function OutcomeAssistantPanel({
     ];
     let index = 0;
     const interval = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
       index = (index + 1) % labels.length;
       setLoadingLabel(labels[index]);
     }, 1400);
@@ -471,9 +472,9 @@ export function OutcomeAssistantPanel({
     : [];
 
   return (
-    <div className="h-full overflow-y-auto px-4 py-8 md:px-10 md:py-12">
+    <div className="workspace-outcome h-full overflow-y-auto px-4 py-8 md:px-10 md:py-12">
       <div className="mx-auto flex max-w-4xl flex-col gap-6">
-        <header className="text-center">
+        <header className="workspace-outcome-intro text-center">
           <h1 className="text-3xl font-semibold text-primary md:text-[34px] md:leading-10">
             Say it the right way
           </h1>
@@ -482,7 +483,7 @@ export function OutcomeAssistantPanel({
           </p>
         </header>
 
-        <section className="rounded-3xl border border-border-subtle bg-white p-5 shadow-sm md:p-10">
+        <section className="workspace-outcome-card rounded-3xl border border-border-subtle bg-white p-5 shadow-sm md:p-10">
           <div className="grid gap-7">
             <div className="grid gap-2">
               <FieldLabel>What do you want to say?</FieldLabel>
@@ -775,7 +776,7 @@ export function OutcomeAssistantPanel({
             ) : null}
 
             <button
-              className="order-8 mx-auto flex min-h-14 w-full max-w-sm items-center justify-center gap-2 rounded-full bg-primary px-8 py-4 text-sm font-semibold text-white shadow-lg transition-all hover:scale-[1.01] disabled:cursor-wait disabled:opacity-60"
+              className="workspace-outcome-submit order-8 mx-auto flex min-h-14 w-full max-w-sm items-center justify-center gap-2 rounded-full bg-primary px-8 py-4 text-sm font-semibold text-white shadow-lg transition-all hover:scale-[1.01] disabled:cursor-wait disabled:opacity-60"
               disabled={loading}
               onClick={() => void generate()}
               type="button"
