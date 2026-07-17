@@ -17,6 +17,8 @@ export function LandingFooter({ fromHomePage = false }: { fromHomePage?: boolean
           <Link href={sectionHref("universal-copy")}>Universal Copy</Link>
           <Link href="/pricing">Pricing</Link>
           <Link href="/developers/api">API</Link>
+          <Link href="/support">Support</Link>
+          <Link href="/legal#privacy">Privacy</Link>
         </nav>
         <p>© 2026 ProPhrase. All rights reserved.</p>
       </div>

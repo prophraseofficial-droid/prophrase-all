@@ -398,6 +398,7 @@ export default function LegalPage() {
             <button className="hover:text-[#11110e]" onClick={() => selectTab("privacy")} type="button">Privacy Policy</button>
             <button className="hover:text-[#11110e]" onClick={() => selectTab("terms")} type="button">Terms of Service</button>
             <Link className="hover:text-[#11110e]" href="/developers/api">Developer API</Link>
+            <Link className="hover:text-[#11110e]" href="/support">Support</Link>
             <a className="hover:text-[#11110e]" href={`mailto:${LEGAL_EMAIL}`}>Contact</a>
           </div>
         </div>
