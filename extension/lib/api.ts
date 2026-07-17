@@ -74,7 +74,7 @@ export function createUniversalCopy(
 ) {
   return apiRequest<UniversalClipboardResponse>("/api/universal-clipboard", token, {
     method: "POST",
-    body: JSON.stringify({ ...payload, expiresInSeconds: 300, platform: "extension" }),
+    body: JSON.stringify({ ...payload, expiresInSeconds: 600, platform: "extension" }),
   });
 }
 

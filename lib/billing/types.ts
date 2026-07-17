@@ -63,6 +63,7 @@ export type CreditBalance = {
   plan: PlanId;
   billingInterval: BillingInterval;
   subscriptionStatus: SubscriptionStatus;
+  maxInputCharacters: number;
   available: number;
   reserved: number;
   allowance: number;

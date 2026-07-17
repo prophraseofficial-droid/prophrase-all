@@ -321,6 +321,7 @@ export async function getCreditBalance(userId: string): Promise<CreditBalance> {
     plan: account.plan,
     billingInterval: account.billingInterval,
     subscriptionStatus: account.subscriptionStatus,
+    maxInputCharacters: plan.maxInputCharacters,
     available: Number(data.cached_available_balance),
     reserved: Number(data.cached_reserved_balance),
     allowance: plan.dailyCredits ?? plan.monthlyCredits ?? 0,

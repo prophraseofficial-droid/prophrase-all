@@ -16,6 +16,7 @@
     "extension:dev": "npm --prefix extension run dev",
     "extension:build": "npm --prefix extension run build:all",
     "extension:zip": "npm --prefix extension run zip:all",
+    "extension:release": "npm --prefix extension run release",
     "desktop:install": "npm --prefix desktop install",
     "desktop:dev": "npm --prefix desktop run dev",
     "desktop:start": "npm --prefix desktop start",

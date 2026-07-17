@@ -1,5 +1,5 @@
 import { browser } from "wxt/browser";
-import { isAuthenticationError, rephrase } from "../lib/api";
+import { isAuthenticationError, loadCredits, rephrase } from "../lib/api";
 import { clearToken, getToken } from "../lib/auth";
 
 type ExtensionMessage = {
@@ -45,6 +45,15 @@ export default defineBackground(() => {
         return { ok: false, error: "Select between 3 and 5,000 characters." };
       }
       try {
+        const credits = await loadCredits(token);
+        const limit = credits.balance?.maxInputCharacters ?? 5000;
+        if (message.text.trim().length > limit) {
+          const plan = credits.balance?.plan ?? "current";
+          return {
+            ok: false,
+            error: `${plan[0].toUpperCase()}${plan.slice(1)} supports selections up to ${limit.toLocaleString()} characters.`,
+          };
+        }
         const response = await rephrase(token, message.text.trim(), message.tone || "Professional");
         return { ok: true, result: response.result };
       } catch (error) {

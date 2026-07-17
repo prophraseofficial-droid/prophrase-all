@@ -1,4 +1,4 @@
-# ProPhrase Browser Extension
+# ProPhrase AI Browser Extension
 
 One WXT/React codebase produces installable builds for Chrome, Microsoft Edge,
 and Firefox.
@@ -47,6 +47,11 @@ Outputs:
 Create store-ready archives with `npm run extension:zip`. The Chrome package is
 submitted to the Chrome Web Store, the Edge package to Microsoft Edge Add-ons,
 and the Firefox package to Mozilla Add-ons.
+
+For a Chrome-and-Firefox release, run `npm run extension:release`. This also
+creates the Firefox source archive required for review. See
+[`PUBLISHING.md`](./PUBLISHING.md) for the complete store submission, callback,
+privacy-disclosure, review, and update procedure.
 
 ## Permissions
 

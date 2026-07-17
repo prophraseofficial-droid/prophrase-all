@@ -48,6 +48,7 @@ export default function App() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const loading = loadingAction !== null;
+  const rephraseLimit = credits?.balance?.maxInputCharacters ?? 5000;
   const deviceLabel = `${browserName()} extension`;
   const universalClaimable = Boolean(
     universalItem
@@ -294,12 +295,12 @@ export default function App() {
         {mode === "universal" && <p className="section-help">Paste or select text here, then make it available to your other signed-in ProPhrase devices.</p>}
         <textarea
           id="message"
-          maxLength={mode === "universal" ? 4000 : 5000}
+          maxLength={mode === "universal" ? 4000 : rephraseLimit}
           value={text}
           onChange={(event) => setText(event.target.value)}
           placeholder={mode === "universal" ? "Paste something to continue on another device..." : "Select text on the page, or type it here..."}
         />
-        <div className="count">{text.length}/{mode === "universal" ? 4000 : 5000}</div>
+        <div className="count">{text.length}/{mode === "universal" ? 4000 : rephraseLimit}</div>
       </section>
 
       {mode === "rephrase" && (
@@ -355,7 +356,11 @@ export default function App() {
       <button
         className="primary wide"
         onClick={mode === "universal" ? publishUniversalCopy : submitRephrase}
-        disabled={loading || text.trim().length < (mode === "universal" ? 1 : 3)}
+        disabled={
+          loading ||
+          text.trim().length < (mode === "universal" ? 1 : 3) ||
+          (mode === "rephrase" && text.trim().length > rephraseLimit)
+        }
       >
         {loadingAction === "share"
           ? "Sharing..."

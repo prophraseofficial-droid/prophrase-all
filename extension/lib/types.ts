@@ -12,7 +12,20 @@ export type CreditsResponse = {
     available: number;
     reserved: number;
     allowance: number;
-    plan: string;
+    plan: "free" | "plus" | "pro";
+    billingInterval: "none" | "monthly" | "annual";
+    subscriptionStatus:
+      | "free"
+      | "pending"
+      | "active"
+      | "past_due"
+      | "grace_period"
+      | "canceled"
+      | "expired"
+      | "refunded"
+      | "chargeback";
+    maxInputCharacters: number;
+    nextRefreshAt: string | null;
   };
 };
 

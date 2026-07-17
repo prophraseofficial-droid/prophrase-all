@@ -2,9 +2,9 @@ import { defineConfig } from "wxt";
 
 export default defineConfig({
   modules: ["@wxt-dev/module-react"],
-  manifest: ({ mode }) => ({
-    name: "ProPhrase",
-    short_name: "ProPhrase",
+  manifest: ({ browser, mode }) => ({
+    name: "ProPhrase AI",
+    short_name: "ProPhrase AI",
     description: "Rephrase selected text and copy content across your ProPhrase devices.",
     permissions: ["activeTab", "contextMenus", "identity", "scripting", "storage"],
     host_permissions: [
@@ -31,14 +31,18 @@ export default defineConfig({
         matches: ["http://*/*", "https://*/*"],
       },
     ],
-    browser_specific_settings: {
-      gecko: {
-        id: "extension@prophrase.in",
-        strict_min_version: "121.0",
-        data_collection_permissions: {
-          required: ["authenticationInfo", "personalCommunications", "websiteContent"],
-        },
-      },
-    },
+    ...(browser === "firefox"
+      ? {
+          browser_specific_settings: {
+            gecko: {
+              id: "extension@prophrase.in",
+              strict_min_version: "140.0",
+              data_collection_permissions: {
+                required: ["authenticationInfo", "personalCommunications", "websiteContent"],
+              },
+            },
+          },
+        }
+      : {}),
   }),
 });

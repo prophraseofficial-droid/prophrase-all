@@ -1,5 +1,5 @@
 {
-  "name": "prophrase-browser-extension",
+  "name": "prophrase-ai-browser-extension",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -13,8 +13,9 @@
     "build:all": "npm run build:chrome && npm run build:edge && npm run build:firefox",
     "zip:chrome": "wxt zip -b chrome",
     "zip:edge": "wxt zip -b edge",
-    "zip:firefox": "wxt zip -b firefox",
+    "zip:firefox": "wxt zip -b firefox --sources",
     "zip:all": "npm run zip:chrome && npm run zip:edge && npm run zip:firefox",
+    "release": "npm run compile && npm run zip:chrome && npm run zip:firefox",
     "compile": "tsc --noEmit"
   },
   "dependencies": {
