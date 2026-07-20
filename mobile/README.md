@@ -61,24 +61,38 @@ npm run ios
 npm run android
 ```
 
-### Actual iPhone
+### Physical iPhone or Android device
 
 During Expo's SDK 57 transition, the public iOS Expo Go app supports SDK 54 for
 physical-device projects. The ProPhrase mobile package is therefore pinned to
 SDK 54-compatible modules for App Store Expo Go testing while the web/backend
 remain unchanged.
 
-Install the latest Expo Go from the App Store, connect the iPhone and Mac to the
-same Wi-Fi, and run:
+Install Expo Go from the App Store or Google Play, then connect the phone and
+Mac to the same Wi-Fi. Start the Next.js backend from the repository root so it
+accepts LAN connections:
 
 ```bash
-npm run iphone -- --clear
+npm run dev -- --hostname 0.0.0.0
 ```
 
-This command detects the Mac LAN address, points mobile API requests at the
-local Next.js server, and starts Metro for Expo Go. Add the exact `exp://`
+In a second terminal, start the physical-device launcher:
+
+```bash
+npm run start:device -- --clear
+```
+
+This command detects the Mac LAN address, points mobile API and web requests at
+the local Next.js server, and starts Metro for Expo Go. Add the exact `exp://`
 callback printed by the command to Supabase Dashboard -> Authentication -> URL
-Configuration -> Redirect URLs. Then scan the QR code with the iPhone Camera.
+Configuration -> Redirect URLs. Scan the QR code with the iPhone Camera or from
+Expo Go on Android.
+
+To test against the deployed backend instead of the Mac, run:
+
+```bash
+PROPHRASE_DEVICE_API_BASE_URL=https://prophrase.in npm run start:device -- --clear
+```
 
 From the repo root:
 
@@ -91,8 +105,8 @@ The default simulator scripts are emulator-safe: they use `EXPO_OFFLINE=1`,
 `--localhost`, `REACT_NATIVE_PACKAGER_HOSTNAME=127.0.0.1`, and IPv4-first DNS.
 This avoids the Expo GraphQL session request that can print
 `UnexpectedServerData` and prevents Metro from binding to IPv6 `::1` while
-Expo Go tries `127.0.0.1`. The `iphone`/`*:device` script uses the detected LAN
-address for Metro, the API, and the Expo Go OAuth callback.
+Expo Go tries `127.0.0.1`. The `iphone`/`*:device` scripts use the detected LAN
+address for Metro, the API, web links, and the Expo Go OAuth callback.
 
 ## Notes
 

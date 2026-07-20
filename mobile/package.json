@@ -9,7 +9,7 @@
     "ios": "NODE_OPTIONS=--dns-result-order=ipv4first REACT_NATIVE_PACKAGER_HOSTNAME=127.0.0.1 EXPO_OFFLINE=1 EXPO_NO_TELEMETRY=1 EXPO_NO_REDIRECT_PAGE=1 EXPO_NO_METRO_WORKSPACE_ROOT=1 expo start --localhost --ios",
     "iphone": "node ./scripts/start-iphone.mjs",
     "start:device": "node ./scripts/start-iphone.mjs",
-    "android:device": "EXPO_NO_TELEMETRY=1 EXPO_NO_METRO_WORKSPACE_ROOT=1 expo start --lan --android",
+    "android:device": "node ./scripts/start-iphone.mjs",
     "ios:device": "node ./scripts/start-iphone.mjs",
     "web": "EXPO_NO_TELEMETRY=1 EXPO_NO_METRO_WORKSPACE_ROOT=1 expo start --lan --web",
     "typecheck": "tsc --noEmit"

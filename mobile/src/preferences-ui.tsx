@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { updatePreferences } from "./api";
 import { colors, shadow, spacing } from "./theme";
 import type { PreferenceOptions, QuickStyleId, Tone, UserPreferences } from "./types";
@@ -40,8 +41,8 @@ export function QuickStylesOnboardingScreen({ token, preferences, options, onCom
     }
   }
 
-  return <View style={styles.onboardingScreen}>
-    <ScrollView contentContainerStyle={styles.onboardingContent}>
+  return <SafeAreaView style={styles.onboardingScreen}>
+    <ScrollView contentContainerStyle={styles.onboardingContent} showsVerticalScrollIndicator={false}>
       <Text style={styles.eyebrow}>WELCOME TO PROPHRASE</Text>
       <Text style={styles.title}>Make ProPhrase yours</Text>
       <Text style={styles.copy}>Choose the writing styles you use most. You can change them anytime.</Text>
@@ -62,7 +63,7 @@ export function QuickStylesOnboardingScreen({ token, preferences, options, onCom
       <Pressable disabled={busy} onPress={() => setSelected([...recommended])} style={styles.secondary}><Text style={styles.secondaryText}>Use recommended</Text></Pressable>
       <Pressable disabled={busy} onPress={() => void save([...recommended])} style={styles.linkButton}><Text style={styles.linkText}>Skip for now</Text></Pressable>
     </ScrollView>
-  </View>;
+  </SafeAreaView>;
 }
 
 export function QuickStylesPicker({ token, preferences, options, selectedTone, onSelect, onUpdate }: {
@@ -75,6 +76,7 @@ export function QuickStylesPicker({ token, preferences, options, selectedTone, o
 }) {
   const [open, setOpen] = useState(false);
   const [replaceId, setReplaceId] = useState<QuickStyleId | null>(null);
+  const insets = useSafeAreaInsets();
   const byId = Object.fromEntries(options.quickStyles.map((style) => [style.id, style]));
   const active = options.quickStyles.find((style) => style.tone === selectedTone);
 
@@ -104,9 +106,9 @@ export function QuickStylesPicker({ token, preferences, options, selectedTone, o
     </ScrollView>
     <Modal animationType="slide" transparent visible={open} onRequestClose={() => setOpen(false)}>
       <Pressable style={styles.backdrop} onPress={() => setOpen(false)} />
-      <View style={styles.sheet}><View style={styles.handle} /><Text style={styles.sheetTitle}>All styles</Text><ScrollView>{options.quickStyleGroups.map((group) => <View key={group.id}><Text style={styles.groupTitle}>{group.label}</Text>{options.quickStyles.filter((item) => item.group === group.id).map((item) => <Pressable key={item.id} onPress={() => { onSelect(item.tone); setOpen(false); }} style={[styles.sheetRow, active?.id === item.id && styles.sheetRowActive]}><View style={styles.optionCopy}><Text style={styles.optionTitle}>{item.label}</Text><Text style={styles.optionMeta}>{item.description}</Text></View>{active?.id === item.id && !preferences.rephrase.quickStyles.includes(item.id) ? <Pressable onPress={() => void pin(item.id)} style={styles.pin}><Text style={styles.pinText}>Pin</Text></Pressable> : null}</Pressable>)}</View>)}</ScrollView></View>
+      <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, spacing.screen) }]}><View style={styles.handle} /><Text style={styles.sheetTitle}>All styles</Text><ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>{options.quickStyleGroups.map((group) => <View key={group.id}><Text style={styles.groupTitle}>{group.label}</Text>{options.quickStyles.filter((item) => item.group === group.id).map((item) => <Pressable key={item.id} onPress={() => { onSelect(item.tone); setOpen(false); }} style={[styles.sheetRow, active?.id === item.id && styles.sheetRowActive]}><View style={styles.optionCopy}><Text style={styles.optionTitle}>{item.label}</Text><Text style={styles.optionMeta}>{item.description}</Text></View>{active?.id === item.id && !preferences.rephrase.quickStyles.includes(item.id) ? <Pressable onPress={() => void pin(item.id)} style={styles.pin}><Text style={styles.pinText}>Pin</Text></Pressable> : null}</Pressable>)}</View>)}</ScrollView></View>
     </Modal>
-    <Modal animationType="fade" transparent visible={Boolean(replaceId)} onRequestClose={() => setReplaceId(null)}><View style={styles.modalCenter}><View style={styles.replaceCard}><Text style={styles.sheetTitle}>Replace a Quick Style</Text><Text style={styles.copy}>Choose the style to replace.</Text>{preferences.rephrase.quickStyles.map((id) => <Pressable key={id} onPress={() => void replace(id)} style={styles.replaceRow}><Text style={styles.optionTitle}>{byId[id].label}</Text></Pressable>)}<Pressable onPress={() => setReplaceId(null)} style={styles.secondary}><Text style={styles.secondaryText}>Cancel</Text></Pressable></View></View></Modal>
+    <Modal animationType="fade" transparent visible={Boolean(replaceId)} onRequestClose={() => setReplaceId(null)}><View style={[styles.modalCenter, { paddingBottom: Math.max(insets.bottom, spacing.screen) }]}><View style={styles.replaceCard}><Text style={styles.sheetTitle}>Replace a Quick Style</Text><Text style={styles.copy}>Choose the style to replace.</Text>{preferences.rephrase.quickStyles.map((id) => <Pressable key={id} onPress={() => void replace(id)} style={styles.replaceRow}><Text style={styles.optionTitle}>{byId[id].label}</Text></Pressable>)}<Pressable onPress={() => setReplaceId(null)} style={styles.secondary}><Text style={styles.secondaryText}>Cancel</Text></Pressable></View></View></Modal>
   </>;
 }
 
@@ -179,5 +181,300 @@ export function PreferenceSettingsPanel({ token, preferences, options, onUpdate 
 }
 
 const styles = StyleSheet.create({
-  onboardingScreen: { flex: 1, backgroundColor: colors.surface }, onboardingContent: { padding: spacing.screen, paddingBottom: 48 }, eyebrow: { color: colors.muted, fontSize: 12, fontWeight: "700", letterSpacing: 1 }, title: { color: colors.text, fontSize: 38, fontWeight: "800", marginTop: 14 }, copy: { color: colors.muted, fontSize: 16, lineHeight: 24, marginTop: 12 }, count: { color: colors.text, fontSize: 14, fontWeight: "700", marginTop: 24 }, group: { marginTop: 24 }, groupTitle: { color: colors.muted, fontSize: 13, fontWeight: "700", marginBottom: 10 }, option: { alignItems: "center", backgroundColor: colors.surfaceCard, borderColor: colors.border, borderRadius: 10, borderWidth: 1, flexDirection: "row", minHeight: 64, padding: 14, marginBottom: 8 }, optionActive: { backgroundColor: colors.primary, borderColor: colors.primary }, optionCopy: { flex: 1 }, optionTitle: { color: colors.text, fontSize: 15, fontWeight: "700" }, optionMeta: { color: colors.muted, fontSize: 12, marginTop: 4 }, optionTextActive: { color: "#fff" }, optionMetaActive: { color: "rgba(255,255,255,.72)" }, optionMark: { color: colors.text, fontSize: 20, fontWeight: "700" }, disabled: { opacity: .42 }, error: { color: colors.danger, fontSize: 13, lineHeight: 19, marginTop: 14 }, success: { color: colors.success, fontSize: 13, marginTop: 12 }, primary: { alignItems: "center", backgroundColor: colors.primary, borderRadius: 10, minHeight: 50, justifyContent: "center", marginTop: 24 }, primaryText: { color: "#fff", fontSize: 15, fontWeight: "700" }, secondary: { alignItems: "center", backgroundColor: colors.surfaceCard, borderColor: colors.border, borderRadius: 10, borderWidth: 1, minHeight: 48, justifyContent: "center", marginTop: 10 }, secondaryText: { color: colors.text, fontSize: 14, fontWeight: "700" }, linkButton: { alignItems: "center", minHeight: 48, justifyContent: "center" }, linkText: { color: colors.muted, fontSize: 14, fontWeight: "600" }, quickRow: { gap: 8, paddingHorizontal: spacing.screen, paddingVertical: 12 }, quickChip: { alignItems: "center", backgroundColor: colors.surfaceCard, borderColor: colors.border, borderRadius: 10, borderWidth: 1, justifyContent: "center", minHeight: 42, paddingHorizontal: 14 }, quickChipActive: { backgroundColor: colors.primary, borderColor: colors.primary }, quickChipText: { color: colors.muted, fontSize: 13, fontWeight: "700" }, quickChipTextActive: { color: "#fff" }, backdrop: { backgroundColor: "rgba(0,0,0,.24)", flex: 1 }, sheet: { backgroundColor: colors.surfaceCard, borderTopLeftRadius: 22, borderTopRightRadius: 22, bottom: 0, left: 0, maxHeight: "80%", padding: spacing.screen, position: "absolute", right: 0 }, handle: { alignSelf: "center", backgroundColor: colors.border, borderRadius: 2, height: 4, marginBottom: 18, width: 42 }, sheetTitle: { color: colors.text, fontSize: 22, fontWeight: "800", marginBottom: 14 }, sheetRow: { alignItems: "center", borderBottomColor: colors.border, borderBottomWidth: 1, flexDirection: "row", minHeight: 62, paddingVertical: 10 }, sheetRowActive: { backgroundColor: colors.surfaceLow }, pin: { backgroundColor: colors.primary, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 }, pinText: { color: "#fff", fontSize: 12, fontWeight: "700" }, modalCenter: { alignItems: "center", backgroundColor: "rgba(0,0,0,.28)", flex: 1, justifyContent: "center", padding: spacing.screen }, replaceCard: { backgroundColor: colors.surfaceCard, borderRadius: 14, padding: 20, width: "100%", ...shadow }, replaceRow: { borderBottomColor: colors.border, borderBottomWidth: 1, minHeight: 48, justifyContent: "center" }, settingsPanel: { marginTop: 26 }, sectionTitle: { color: colors.text, fontSize: 16, fontWeight: "800", marginBottom: 12, marginTop: 18 }, wrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 }, reorderRow: { alignItems: "center", backgroundColor: colors.surfaceCard, borderColor: colors.border, borderRadius: 10, borderWidth: 1, flexDirection: "row", marginBottom: 8, minHeight: 48, paddingHorizontal: 12 }, reorderLabel: { color: colors.text, flex: 1, fontSize: 14, fontWeight: "700" }, moveButton: { alignItems: "center", borderColor: colors.border, borderRadius: 8, borderWidth: 1, height: 36, justifyContent: "center", marginLeft: 8, width: 36 },
+  onboardingScreen: {
+    backgroundColor: colors.surface,
+    flex: 1,
+  },
+  onboardingContent: {
+    alignSelf: "center",
+    maxWidth: 680,
+    padding: spacing.screen,
+    paddingBottom: 48,
+    width: "100%",
+  },
+  eyebrow: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 1,
+  },
+  title: {
+    color: colors.text,
+    fontSize: 34,
+    fontWeight: "800",
+    lineHeight: 40,
+    marginTop: 14,
+  },
+  copy: {
+    color: colors.muted,
+    fontSize: 16,
+    lineHeight: 24,
+    marginTop: 12,
+  },
+  count: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "700",
+    marginTop: 24,
+  },
+  group: {
+    marginTop: 24,
+  },
+  groupTitle: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700",
+    marginBottom: 10,
+  },
+  option: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceCard,
+    borderColor: colors.border,
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: "row",
+    marginBottom: 8,
+    minHeight: 64,
+    padding: 14,
+  },
+  optionActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  optionCopy: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 10,
+  },
+  optionTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  optionMeta: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 4,
+  },
+  optionTextActive: {
+    color: "#fff",
+  },
+  optionMetaActive: {
+    color: "rgba(255,255,255,.72)",
+  },
+  optionMark: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: "700",
+    marginLeft: 8,
+  },
+  disabled: {
+    opacity: 0.42,
+  },
+  error: {
+    color: colors.danger,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 14,
+  },
+  success: {
+    color: colors.success,
+    fontSize: 13,
+    marginTop: 12,
+  },
+  primary: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: 10,
+    justifyContent: "center",
+    marginTop: 24,
+    minHeight: 50,
+    paddingHorizontal: 14,
+  },
+  primaryText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  secondary: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceCard,
+    borderColor: colors.border,
+    borderRadius: 10,
+    borderWidth: 1,
+    justifyContent: "center",
+    marginTop: 10,
+    minHeight: 48,
+    paddingHorizontal: 14,
+  },
+  secondaryText: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  linkButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 48,
+  },
+  linkText: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  quickRow: {
+    gap: 8,
+    paddingHorizontal: spacing.screen,
+    paddingVertical: 12,
+  },
+  quickChip: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceCard,
+    borderColor: colors.border,
+    borderRadius: 10,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 44,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  quickChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  quickChipText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  quickChipTextActive: {
+    color: "#fff",
+  },
+  backdrop: {
+    backgroundColor: "rgba(0,0,0,.24)",
+    flex: 1,
+  },
+  sheet: {
+    backgroundColor: colors.surfaceCard,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    bottom: 0,
+    left: 0,
+    maxHeight: "84%",
+    padding: spacing.screen,
+    position: "absolute",
+    right: 0,
+  },
+  handle: {
+    alignSelf: "center",
+    backgroundColor: colors.border,
+    borderRadius: 2,
+    height: 4,
+    marginBottom: 18,
+    width: 42,
+  },
+  sheetTitle: {
+    color: colors.text,
+    flexShrink: 1,
+    fontSize: 22,
+    fontWeight: "800",
+    marginBottom: 14,
+  },
+  sheetRow: {
+    alignItems: "center",
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    minHeight: 62,
+    paddingVertical: 10,
+  },
+  sheetRowActive: {
+    backgroundColor: colors.surfaceLow,
+  },
+  pin: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: 8,
+    justifyContent: "center",
+    minHeight: 44,
+    minWidth: 52,
+    paddingHorizontal: 12,
+  },
+  pinText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  modalCenter: {
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,.28)",
+    flex: 1,
+    justifyContent: "center",
+    padding: spacing.screen,
+  },
+  replaceCard: {
+    backgroundColor: colors.surfaceCard,
+    borderRadius: 14,
+    maxHeight: "90%",
+    maxWidth: 560,
+    padding: 20,
+    width: "100%",
+    ...shadow,
+  },
+  replaceRow: {
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+    justifyContent: "center",
+    minHeight: 48,
+  },
+  settingsPanel: {
+    marginTop: 26,
+  },
+  sectionTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: "800",
+    lineHeight: 22,
+    marginBottom: 12,
+    marginTop: 18,
+  },
+  wrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  reorderRow: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceCard,
+    borderColor: colors.border,
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: "row",
+    marginBottom: 8,
+    minHeight: 52,
+    paddingHorizontal: 8,
+  },
+  reorderLabel: {
+    color: colors.text,
+    flex: 1,
+    flexShrink: 1,
+    fontSize: 14,
+    fontWeight: "700",
+    minWidth: 0,
+  },
+  moveButton: {
+    alignItems: "center",
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    height: 44,
+    justifyContent: "center",
+    marginLeft: 6,
+    width: 44,
+  },
 });

@@ -1,23 +1,29 @@
 const allowedRedirectDomains = [".chromiumapp.org", ".extensions.allizom.org"];
+const officialRedirectOrigins = [
+  "https://pmfgmjobfpminpkenehibfhmahgbgpmn.chromiumapp.org",
+];
 
 function configuredRedirectOrigins() {
-  return (process.env.EXTENSION_REDIRECT_ORIGINS ?? "")
+  const additionalOrigins = (process.env.EXTENSION_REDIRECT_ORIGINS ?? "")
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
+  return [...new Set([...officialRedirectOrigins, ...additionalOrigins])];
 }
 
 export function getSafeExtensionRedirect(
   value?: string | null,
-  allowedOrigins = configuredRedirectOrigins(),
+  allowedOrigins?: string[],
 ) {
   if (!value) return null;
   try {
     const url = new URL(value);
+    const effectiveAllowedOrigins = allowedOrigins ?? configuredRedirectOrigins();
     const validPath = url.pathname.replace(/\/$/, "") === "/connected";
-    const exactOriginAllowed = allowedOrigins.includes(url.origin);
+    const exactOriginAllowed = effectiveAllowedOrigins.includes(url.origin);
     const developmentDomainAllowed =
-      allowedOrigins.length === 0 &&
+      allowedOrigins === undefined &&
+      !process.env.EXTENSION_REDIRECT_ORIGINS &&
       process.env.NODE_ENV !== "production" &&
       allowedRedirectDomains.some((domain) => url.hostname.endsWith(domain));
     if (

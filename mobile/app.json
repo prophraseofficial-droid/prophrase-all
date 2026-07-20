@@ -16,6 +16,7 @@
     },
     "android": {
       "package": "com.prophrase.app",
+      "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "../public/prophrase-app-icon-512.png",
         "backgroundColor": "#FAF9F6"

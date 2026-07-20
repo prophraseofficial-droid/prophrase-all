@@ -2,6 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { getSafeExtensionRedirect } from "../lib/extension/connect.ts";
 
+test("the published Chrome Web Store callback is always accepted exactly", () => {
+  const callback = "https://pmfgmjobfpminpkenehibfhmahgbgpmn.chromiumapp.org/connected";
+  assert.equal(getSafeExtensionRedirect(callback), callback);
+  assert.equal(
+    getSafeExtensionRedirect("https://pmfgmjobfpminpkenehibfhmahgbgpmn.chromiumapp.org.evil.test/connected"),
+    null,
+  );
+});
+
 test("extension callbacks require an exact configured origin and callback path", () => {
   const allowed = ["https://abcdefghijklmnop.chromiumapp.org"];
   assert.equal(

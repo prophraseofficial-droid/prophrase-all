@@ -93,6 +93,7 @@ const privacySections: LegalSection[] = [
     paragraphs: [
       "The extension requests active-tab, scripting, context-menu, identity and local-storage permissions. It uses these permissions to read or replace text on the active page when you ask it to, authenticate your ProPhrase account, remember a pending selection and call ProPhrase services. It is not designed to operate as a general browsing-history tracker.",
       "Text saved in extension storage and the extension access token remain on your browser profile until used, replaced, cleared or the extension is removed. Treat any signed-in browser profile as an authorized device and sign out or revoke the extension token if a device is lost or shared.",
+      "The use of information received from Google APIs will adhere to the Chrome Web Store User Data Policy, including the Limited Use requirements.",
     ],
   },
   {

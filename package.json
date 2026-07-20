@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint .",
     "test": "node --experimental-strip-types --experimental-specifier-resolution=node --test tests/*.test.ts",
+    "marketing:diagnose:linkedin": "node scripts/diagnose-linkedin-marketing.mjs",
     "billing:admin": "node scripts/billing-admin.mjs",
     "security:client-bundle": "node scripts/check-client-secrets.mjs",
     "assets:transparent-logo": "node scripts/make-transparent-logo.mjs",
@@ -30,7 +31,7 @@
     "mobile:ios": "cd mobile && NODE_OPTIONS=--dns-result-order=ipv4first REACT_NATIVE_PACKAGER_HOSTNAME=127.0.0.1 EXPO_OFFLINE=1 EXPO_NO_TELEMETRY=1 EXPO_NO_REDIRECT_PAGE=1 EXPO_NO_METRO_WORKSPACE_ROOT=1 npx expo start --localhost --ios",
     "mobile:iphone": "cd mobile && npm run iphone",
     "mobile:start:device": "cd mobile && npm run iphone",
-    "mobile:android:device": "cd mobile && EXPO_NO_TELEMETRY=1 EXPO_NO_METRO_WORKSPACE_ROOT=1 npx expo start --lan --android",
+    "mobile:android:device": "cd mobile && npm run android:device",
     "mobile:ios:device": "cd mobile && npm run iphone"
   },
   "dependencies": {

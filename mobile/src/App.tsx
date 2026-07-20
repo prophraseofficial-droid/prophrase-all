@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -20,7 +21,11 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaProvider,
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import {
   createUniversalCopy,
   loadThread,
@@ -111,6 +116,7 @@ function Button({
 }) {
   return (
     <Pressable
+      accessibilityRole="button"
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
@@ -124,6 +130,9 @@ function Button({
       ]}
     >
       <Text
+        adjustsFontSizeToFit
+        minimumFontScale={0.82}
+        numberOfLines={2}
         style={[
           styles.buttonText,
           variant === "secondary" || variant === "ghost"
@@ -161,7 +170,12 @@ function GoogleButton({
       <View style={styles.googleMark}>
         <Text style={styles.googleMarkText}>G</Text>
       </View>
-      <Text style={styles.googleButtonText}>
+      <Text
+        adjustsFontSizeToFit
+        minimumFontScale={0.8}
+        numberOfLines={1}
+        style={styles.googleButtonText}
+      >
         {loading ? "Connecting to Google..." : "Continue with Google"}
       </Text>
       <View style={styles.googleButtonSpacer} />
@@ -171,14 +185,12 @@ function GoogleButton({
 
 function AppLogo({ size = 44 }: { size?: number }) {
   return (
-    <View
-      style={[
-        styles.logoMark,
-        { height: size, width: size, borderRadius: Math.max(10, size * 0.24) },
-      ]}
-    >
-      <Text style={[styles.logoText, { fontSize: size * 0.62 }]}>P</Text>
-    </View>
+    <Image
+      accessibilityLabel="ProPhrase"
+      resizeMode="contain"
+      source={require("../assets/prophrase-logo-transparent.png")}
+      style={{ height: size, width: size }}
+    />
   );
 }
 
@@ -222,7 +234,10 @@ function SplashScreen() {
 function OnboardingValueProp({ onNext }: { onNext: () => void }) {
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.onboarding}>
+      <ScrollView
+        contentContainerStyle={styles.onboarding}
+        showsVerticalScrollIndicator={false}
+      >
         <AppLogo />
         <Text style={styles.heroTitle}>Write clearly without slowing down.</Text>
         <Text style={styles.heroCopy}>
@@ -270,7 +285,10 @@ function OnboardingToneChoice({
 }) {
   return (
     <SafeAreaView style={styles.safe}>
-      <View style={styles.onboarding}>
+      <ScrollView
+        contentContainerStyle={styles.onboarding}
+        showsVerticalScrollIndicator={false}
+      >
         <Text style={styles.step}>Step 2 of 3</Text>
         <Text style={styles.heroTitle}>Choose your default tone.</Text>
         <Text style={styles.heroCopy}>
@@ -299,7 +317,7 @@ function OnboardingToneChoice({
           ))}
         </View>
         <Button title="Use this tone" onPress={onNext} />
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -320,43 +338,50 @@ function OnboardingGetStarted({
   return (
     <SafeAreaView style={styles.safe}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        style={styles.onboarding}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={styles.flex}
       >
-        <Text style={styles.step}>Step 3 of 3</Text>
-        <Text style={styles.heroTitle}>Start rewriting from your phone.</Text>
-        <Text style={styles.heroCopy}>
-          Sign in once to use rewriting, Outcome Assistant, Universal Copy,
-          history, templates, preferences, and usage across your devices.
-        </Text>
-        <GoogleButton
-          disabled={authLoading !== null}
-          loading={authLoading === "google"}
-          onPress={onGoogle}
-        />
-        <View style={styles.authDivider}>
-          <View style={styles.authDividerLine} />
-          <Text style={styles.authDividerText}>or continue with email</Text>
-          <View style={styles.authDividerLine} />
-        </View>
-        <TextInput
-          autoCapitalize="none"
-          autoCorrect={false}
-          keyboardType="email-address"
-          onChangeText={setEmail}
-          placeholder="prophraseofficial@gmail.com"
-          placeholderTextColor={colors.muted}
-          style={styles.input}
-          value={email}
-        />
-        <Button
-          disabled={authLoading !== null || !email.trim()}
-          title={authLoading === "magic" ? "Sending magic link..." : "Send magic link"}
-          onPress={onStart}
-        />
-        <Text style={styles.finePrint}>
-          Mobile uses Supabase secure sessions. Your API keys stay on the server.
-        </Text>
+        <ScrollView
+          contentContainerStyle={styles.onboarding}
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <Text style={styles.step}>Step 3 of 3</Text>
+          <Text style={styles.heroTitle}>Start rewriting from your phone.</Text>
+          <Text style={styles.heroCopy}>
+            Sign in once to use rewriting, Outcome Assistant, Universal Copy,
+            history, templates, preferences, and usage across your devices.
+          </Text>
+          <GoogleButton
+            disabled={authLoading !== null}
+            loading={authLoading === "google"}
+            onPress={onGoogle}
+          />
+          <View style={styles.authDivider}>
+            <View style={styles.authDividerLine} />
+            <Text numberOfLines={1} style={styles.authDividerText}>or continue with email</Text>
+            <View style={styles.authDividerLine} />
+          </View>
+          <TextInput
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="email-address"
+            onChangeText={setEmail}
+            placeholder="prophraseofficial@gmail.com"
+            placeholderTextColor={colors.muted}
+            style={styles.input}
+            value={email}
+          />
+          <Button
+            disabled={authLoading !== null || !email.trim()}
+            title={authLoading === "magic" ? "Sending magic link..." : "Send magic link"}
+            onPress={onStart}
+          />
+          <Text style={styles.finePrint}>
+            Mobile uses Supabase secure sessions. Your API keys stay on the server.
+          </Text>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -373,35 +398,54 @@ function ToneSelectionSheet({
   onSelect: (tone: Tone) => void;
   onClose: () => void;
 }) {
+  const insets = useSafeAreaInsets();
+
   return (
-    <Modal animationType="slide" transparent visible={visible}>
+    <Modal
+      animationType="slide"
+      onRequestClose={onClose}
+      transparent
+      visible={visible}
+    >
       <Pressable style={styles.sheetBackdrop} onPress={onClose} />
-      <View style={styles.sheet}>
+      <View
+        style={[
+          styles.sheet,
+          { paddingBottom: Math.max(insets.bottom, spacing.screen) },
+        ]}
+      >
         <View style={styles.sheetHandle} />
         <Text style={styles.sheetTitle}>Tone</Text>
-        {tones.map((item) => (
-          <Pressable
-            key={item}
-            onPress={() => {
-              onSelect(item);
-              onClose();
-            }}
-            style={[styles.sheetRow, item === tone ? styles.sheetRowActive : null]}
-          >
-            <Text style={styles.sheetRowTitle}>{item}</Text>
-            <Text style={styles.sheetRowMeta}>
-              {item === "Professional"
-                ? "Clear and polished"
-                : item === "Short & Crisp"
-                  ? "Concise and direct"
-                  : item === "Human"
-                    ? "Warm and natural"
-                    : item === "Email"
-                      ? "Ready for inboxes"
-                      : "Ticket-friendly"}
-            </Text>
-          </Pressable>
-        ))}
+        <ScrollView
+          contentContainerStyle={styles.sheetList}
+          showsVerticalScrollIndicator={false}
+        >
+          {tones.map((item) => (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ selected: item === tone }}
+              key={item}
+              onPress={() => {
+                onSelect(item);
+                onClose();
+              }}
+              style={[styles.sheetRow, item === tone ? styles.sheetRowActive : null]}
+            >
+              <Text style={styles.sheetRowTitle}>{item}</Text>
+              <Text style={styles.sheetRowMeta}>
+                {item === "Professional"
+                  ? "Clear and polished"
+                  : item === "Short & Crisp"
+                    ? "Concise and direct"
+                    : item === "Human"
+                      ? "Warm and natural"
+                      : item === "Email"
+                        ? "Ready for inboxes"
+                        : "Ticket-friendly"}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
       </View>
     </Modal>
   );
@@ -418,9 +462,11 @@ function LimitReachedModal({
   onUpgrade: () => void;
   onClose: () => void;
 }) {
+  const insets = useSafeAreaInsets();
+
   return (
-    <Modal animationType="fade" transparent visible={visible}>
-      <View style={styles.modalCenter}>
+    <Modal animationType="fade" onRequestClose={onClose} transparent visible={visible}>
+      <View style={[styles.modalCenter, { paddingBottom: Math.max(insets.bottom, spacing.screen) }]}>
         <View style={styles.alertCard}>
           <Text style={styles.alertIcon}>!</Text>
           <Text style={styles.alertTitle}>Limit reached</Text>
@@ -445,38 +491,45 @@ function UpgradeFlow({
   onClose: () => void;
 }) {
   const [interval, setInterval] = useState<"monthly" | "annual">("monthly");
+  const insets = useSafeAreaInsets();
+
   return (
-    <Modal animationType="slide" transparent visible={visible}>
+    <Modal animationType="slide" onRequestClose={onClose} transparent visible={visible}>
       <Pressable style={styles.sheetBackdrop} onPress={onClose} />
-      <View style={styles.sheet}>
+      <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, spacing.screen) }]}>
         <View style={styles.sheetHandle} />
-        <Text style={styles.sheetTitle}>Choose a plan</Text>
-        <Text style={styles.sheetCopy}>
-          Longer messages use more credits. Unused credits do not roll over.
-        </Text>
-        <View style={styles.toneRow}>
-          <Pressable onPress={() => setInterval("monthly")} style={[styles.chip, interval === "monthly" && styles.chipActive]}><Text style={[styles.chipText, interval === "monthly" && styles.chipTextActive]}>Monthly</Text></Pressable>
-          <Pressable onPress={() => setInterval("annual")} style={[styles.chip, interval === "annual" && styles.chipActive]}><Text style={[styles.chipText, interval === "annual" && styles.chipTextActive]}>Annual</Text></Pressable>
-        </View>
-        <Pressable
-          disabled={busy}
-          onPress={() => onSelect("plus", interval)}
-          style={styles.planCard}
+        <ScrollView
+          contentContainerStyle={styles.sheetList}
+          showsVerticalScrollIndicator={false}
         >
-          <Text style={styles.planName}>Plus</Text>
-          <Text style={styles.planPrice}>{interval === "monthly" ? "₹99/month" : "₹899/year"}</Text>
-          <Text style={styles.planMeta}>300 credits refreshed monthly.</Text>
-        </Pressable>
-        <Pressable
-          disabled={busy}
-          onPress={() => onSelect("pro", interval)}
-          style={[styles.planCard, styles.planCardFeatured]}
-        >
-          <Text style={styles.planName}>Pro</Text>
-          <Text style={styles.planPrice}>{interval === "monthly" ? "₹249/month" : "₹1,999/year"}</Text>
-          <Text style={styles.planMeta}>1,500 credits refreshed monthly.</Text>
-        </Pressable>
-        {busy ? <ActivityIndicator color={colors.primary} /> : null}
+          <Text style={styles.sheetTitle}>Choose a plan</Text>
+          <Text style={styles.sheetCopy}>
+            Longer messages use more credits. Unused credits do not roll over.
+          </Text>
+          <View style={styles.toneRow}>
+            <Pressable onPress={() => setInterval("monthly")} style={[styles.chip, interval === "monthly" && styles.chipActive]}><Text style={[styles.chipText, interval === "monthly" && styles.chipTextActive]}>Monthly</Text></Pressable>
+            <Pressable onPress={() => setInterval("annual")} style={[styles.chip, interval === "annual" && styles.chipActive]}><Text style={[styles.chipText, interval === "annual" && styles.chipTextActive]}>Annual</Text></Pressable>
+          </View>
+          <Pressable
+            disabled={busy}
+            onPress={() => onSelect("plus", interval)}
+            style={styles.planCard}
+          >
+            <Text style={styles.planName}>Plus</Text>
+            <Text adjustsFontSizeToFit minimumFontScale={0.8} numberOfLines={1} style={styles.planPrice}>{interval === "monthly" ? "₹99/month" : "₹899/year"}</Text>
+            <Text style={styles.planMeta}>300 credits refreshed monthly.</Text>
+          </Pressable>
+          <Pressable
+            disabled={busy}
+            onPress={() => onSelect("pro", interval)}
+            style={[styles.planCard, styles.planCardFeatured]}
+          >
+            <Text style={styles.planName}>Pro</Text>
+            <Text adjustsFontSizeToFit minimumFontScale={0.8} numberOfLines={1} style={styles.planPrice}>{interval === "monthly" ? "₹249/month" : "₹1,999/year"}</Text>
+            <Text style={styles.planMeta}>1,500 credits refreshed monthly.</Text>
+          </Pressable>
+          {busy ? <ActivityIndicator color={colors.primary} /> : null}
+        </ScrollView>
       </View>
     </Modal>
   );
@@ -682,13 +735,17 @@ function HomeWrite({
                 )}
                 {result ? (
                   <View style={styles.outputActions}>
-                    <Button title="Copy" variant="secondary" onPress={copyResult} />
-                    <Button
-                      title="Copy Universal"
-                      variant="accent"
-                      disabled={loading}
-                      onPress={universalCopy}
-                    />
+                    <View style={styles.outputAction}>
+                      <Button title="Copy" variant="secondary" onPress={copyResult} />
+                    </View>
+                    <View style={styles.outputAction}>
+                      <Button
+                        title="Copy Universal"
+                        variant="accent"
+                        disabled={loading}
+                        onPress={universalCopy}
+                      />
+                    </View>
                   </View>
                 ) : null}
               </View>
@@ -776,6 +833,7 @@ function TemplatesScreen({
     return hasBugTemplate ? templates : [bugTemplate, ...templates];
   }, [templates]);
   const [selected, setSelected] = useState<RewriteTemplate | null>(null);
+  const insets = useSafeAreaInsets();
 
   return (
     <Shell title="Templates" subtitle="Library">
@@ -792,22 +850,29 @@ function TemplatesScreen({
           </Pressable>
         ))}
       </ScrollView>
-      <Modal animationType="slide" transparent visible={Boolean(selected)}>
+      <Modal
+        animationType="slide"
+        onRequestClose={() => setSelected(null)}
+        transparent
+        visible={Boolean(selected)}
+      >
         <Pressable style={styles.sheetBackdrop} onPress={() => setSelected(null)} />
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, spacing.screen) }]}>
           <View style={styles.sheetHandle} />
-          <Text style={styles.sheetTitle}>
-            {selected?.title || "Template: Bug Update Detail"}
-          </Text>
-          <Text style={styles.sheetCopy}>{selected?.body}</Text>
-          <Text style={styles.templateDetailMeta}>Suggested tone: {selected?.tone}</Text>
-          <Button
-            title="Use template"
-            onPress={() => {
-              if (selected) onUse(selected);
-              setSelected(null);
-            }}
-          />
+          <ScrollView contentContainerStyle={styles.sheetList} showsVerticalScrollIndicator={false}>
+            <Text style={styles.sheetTitle}>
+              {selected?.title || "Template: Bug Update Detail"}
+            </Text>
+            <Text style={styles.sheetCopy}>{selected?.body}</Text>
+            <Text style={styles.templateDetailMeta}>Suggested tone: {selected?.tone}</Text>
+            <Button
+              title="Use template"
+              onPress={() => {
+                if (selected) onUse(selected);
+                setSelected(null);
+              }}
+            />
+          </ScrollView>
         </View>
       </Modal>
     </Shell>
@@ -875,23 +940,30 @@ function BottomNav({
   view: ViewName;
   setView: (view: ViewName) => void;
 }) {
-  const tabs: Array<{ view: ViewName; label: string }> = [
+  const insets = useSafeAreaInsets();
+  const tabs: Array<{ view: ViewName; label: string; accessibilityLabel?: string }> = [
     { view: "home", label: "Rephrase" },
     { view: "outcome", label: "Outcome" },
     { view: "history", label: "History" },
-    { view: "templates", label: "Templates" },
+    { view: "templates", label: "Library", accessibilityLabel: "Templates" },
     { view: "settings", label: "Account" },
   ];
 
   return (
-    <View style={styles.bottomNav}>
+    <View style={[styles.bottomNav, { bottom: Math.max(insets.bottom, 8) }]}>
       {tabs.map((tab) => (
         <Pressable
+          accessibilityLabel={tab.accessibilityLabel ?? tab.label}
+          accessibilityRole="tab"
+          accessibilityState={{ selected: view === tab.view }}
           key={tab.view}
           onPress={() => setView(tab.view)}
           style={[styles.navItem, view === tab.view ? styles.navItemActive : null]}
         >
           <Text
+            adjustsFontSizeToFit
+            minimumFontScale={0.75}
+            numberOfLines={1}
             style={[styles.navText, view === tab.view ? styles.navTextActive : null]}
           >
             {tab.label}
@@ -1387,21 +1459,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.muted,
   },
-  logoMark: {
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.primary,
-  },
-  logoText: {
-    color: colors.accent,
-    fontWeight: "900",
-    lineHeight: 54,
-  },
   onboarding: {
-    flex: 1,
+    alignSelf: "center",
+    flexGrow: 1,
     justifyContent: "center",
+    maxWidth: 680,
     padding: spacing.screen,
     gap: 22,
+    width: "100%",
   },
   step: {
     color: colors.accentDark,
@@ -1412,9 +1477,9 @@ const styles = StyleSheet.create({
   },
   heroTitle: {
     color: colors.primary,
-    fontSize: 42,
+    fontSize: 38,
     fontWeight: "900",
-    lineHeight: 45,
+    lineHeight: 42,
   },
   heroCopy: {
     color: colors.muted,
@@ -1478,6 +1543,7 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 15,
     fontWeight: "800",
+    textAlign: "center",
   },
   secondaryButtonText: {
     color: colors.primary,
@@ -1526,8 +1592,11 @@ const styles = StyleSheet.create({
   },
   googleButtonText: {
     color: colors.primary,
+    flex: 1,
     fontSize: 15,
     fontWeight: "800",
+    marginHorizontal: 10,
+    textAlign: "center",
   },
   googleButtonSpacer: {
     width: 28,
@@ -1563,8 +1632,9 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: 999,
     backgroundColor: colors.surfaceCard,
+    justifyContent: "center",
+    minHeight: 44,
     paddingHorizontal: 16,
-    paddingVertical: 12,
   },
   tonePillActive: {
     backgroundColor: colors.primary,
@@ -1583,16 +1653,19 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 12,
     paddingHorizontal: spacing.screen,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
   headerTitleWrap: {
     flex: 1,
+    minWidth: 0,
   },
   headerTitle: {
     color: colors.primary,
     fontSize: 31,
+    flexShrink: 1,
     fontWeight: "900",
   },
   headerSubtitle: {
@@ -1615,9 +1688,12 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   content: {
+    alignSelf: "center",
+    maxWidth: 720,
     padding: spacing.screen,
     paddingBottom: 120,
     gap: 18,
+    width: "100%",
   },
   toneSelector: {
     flexDirection: "row",
@@ -1701,7 +1777,12 @@ const styles = StyleSheet.create({
   outputActions: {
     marginTop: 16,
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 10,
+  },
+  outputAction: {
+    flexGrow: 1,
+    flexBasis: 132,
   },
   statusText: {
     color: colors.muted,
@@ -1721,8 +1802,12 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     backgroundColor: colors.surface,
+    maxHeight: "88%",
     padding: spacing.screen,
+  },
+  sheetList: {
     gap: 12,
+    paddingBottom: 2,
   },
   sheetHandle: {
     alignSelf: "center",
@@ -1753,6 +1838,8 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: 16,
     backgroundColor: colors.surfaceCard,
+    justifyContent: "center",
+    minHeight: 44,
     paddingVertical: 11,
   },
   chipActive: {
@@ -1796,6 +1883,8 @@ const styles = StyleSheet.create({
     padding: spacing.screen,
   },
   alertCard: {
+    maxHeight: "90%",
+    maxWidth: 560,
     width: "100%",
     borderRadius: 24,
     backgroundColor: colors.surfaceCard,
@@ -1945,11 +2034,13 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: 22,
     fontWeight: "900",
+    textAlign: "center",
   },
   profileEmail: {
     marginTop: 5,
     color: colors.muted,
     fontSize: 14,
+    textAlign: "center",
   },
   settingsCard: {
     borderWidth: 1,
@@ -1974,9 +2065,8 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 14,
     right: 14,
-    bottom: 14,
     flexDirection: "row",
-    gap: 8,
+    gap: 4,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 24,
@@ -1988,15 +2078,18 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     borderRadius: 16,
-    paddingVertical: 11,
+    justifyContent: "center",
+    minHeight: 44,
+    paddingHorizontal: 2,
   },
   navItemActive: {
     backgroundColor: colors.primary,
   },
   navText: {
     color: colors.muted,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "900",
+    textAlign: "center",
   },
   navTextActive: {
     color: "#FFFFFF",

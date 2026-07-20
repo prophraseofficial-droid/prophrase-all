@@ -32,7 +32,7 @@ const apiBaseUrl =
 const authRedirectUrl = `exp://${lanAddress}:${metroPort}/--/auth/callback`;
 const expoBinary = path.join(process.cwd(), "node_modules", ".bin", "expo");
 
-console.log(`\nProPhrase iPhone testing`);
+console.log(`\nProPhrase physical-device testing`);
 console.log(`API: ${apiBaseUrl}`);
 console.log(`OAuth callback: ${authRedirectUrl}`);
 console.log("Add that OAuth callback to Supabase Redirect URLs before signing in.\n");
@@ -47,6 +47,7 @@ const child = spawn(
       NODE_OPTIONS: "--dns-result-order=ipv4first",
       REACT_NATIVE_PACKAGER_HOSTNAME: lanAddress,
       EXPO_PUBLIC_API_BASE_URL: apiBaseUrl,
+      EXPO_PUBLIC_WEB_BASE_URL: apiBaseUrl,
       EXPO_PUBLIC_AUTH_REDIRECT_URL: authRedirectUrl,
       EXPO_OFFLINE: "1",
       EXPO_NO_TELEMETRY: "1",

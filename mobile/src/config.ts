@@ -5,8 +5,19 @@ function cleanUrl(value: string) {
   return value.trim().replace(/\/+$/, "");
 }
 
-function isLocalUrl(value: string) {
-  return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:\/|$)/i.test(value);
+function isDevelopmentHost(hostname: string) {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "localhost" || host === "::1" || host.endsWith(".local")) return true;
+  if (/^127\./.test(host) || /^10\./.test(host) || /^192\.168\./.test(host)) return true;
+  if (/^169\.254\./.test(host)) return true;
+
+  const private172 = host.match(/^172\.(\d{1,3})\./);
+  if (private172) {
+    const secondOctet = Number(private172[1]);
+    if (secondOctet >= 16 && secondOctet <= 31) return true;
+  }
+
+  return /^(?:fc|fd|fe8|fe9|fea|feb)/i.test(host);
 }
 
 function isProductionAppEnv() {
@@ -27,7 +38,7 @@ export function resolvePublicUrl(
       const parsed = new URL(cleanedUrl);
       if (
         parsed.protocol === "https:" ||
-        (!production && parsed.protocol === "http:" && isLocalUrl(cleanedUrl))
+        (!production && parsed.protocol === "http:" && isDevelopmentHost(parsed.hostname))
       ) {
         return cleanedUrl;
       }

@@ -64,9 +64,10 @@ all commands from the repository root unless a step says otherwise.
 
 ## 3. Configure the production sign-in callback
 
-The extension uses `browser.identity.getRedirectURL("connected")`. The server
-accepts only exact origins from `EXTENSION_REDIRECT_ORIGINS`; wildcards are
-intentionally rejected.
+The extension uses `browser.identity.getRedirectURL("connected")`. The official
+Chrome Web Store origin is pinned in the server allowlist. Additional Firefox
+or Edge store origins must be listed exactly in `EXTENSION_REDIRECT_ORIGINS`;
+wildcards are intentionally rejected.
 
 1. Install the exact build that will be submitted, or the store-signed build.
 2. Open the extension's background/service-worker developer console and run:
@@ -88,10 +89,11 @@ intentionally rejected.
    https://<firefox-extension-host>.extensions.allizom.org
    ```
 
-4. Set the Vercel production environment variable to both exact origins:
+4. Set the Vercel production environment variable to any additional exact
+   Firefox or Edge origins (the official Chrome origin is already built in):
 
    ```text
-   EXTENSION_REDIRECT_ORIGINS=https://<chrome-extension-id>.chromiumapp.org,https://<firefox-extension-host>.extensions.allizom.org
+   EXTENSION_REDIRECT_ORIGINS=https://<firefox-extension-host>.extensions.allizom.org
    ```
 
 5. Redeploy `prophrase.in`, then test **Connect ProPhrase** in both store builds.
@@ -112,7 +114,8 @@ submitting the draft for review.
    - Name: `ProPhrase AI`
    - Summary: `Rephrase selected text and copy content across your ProPhrase devices.`
    - Category: choose the closest writing/productivity category available.
-   - Website/support URL: `https://prophrase.in`
+   - Website URL: `https://prophrase.in`
+   - Support URL: `https://prophrase.in/support`
    - Privacy policy: `https://prophrase.in/legal#privacy`
    - Upload the requested icon, screenshots, and promotional assets. Show the
      popup, selection assistant, rewrite result, and Universal Copy; never use
