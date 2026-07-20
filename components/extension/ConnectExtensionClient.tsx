@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState } from "react";
 
 export function ConnectExtensionClient({
@@ -40,7 +41,14 @@ export function ConnectExtensionClient({
 
   return (
     <div className="w-full max-w-md rounded-2xl border border-border-subtle bg-white p-8 shadow-lg">
-      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-black text-xl text-white">P</div>
+      <Image
+        alt="ProPhrase"
+        className="h-12 w-12 object-contain"
+        height={48}
+        priority
+        src="/prophrase-logo-transparent.png"
+        width={48}
+      />
       <h1 className="mt-6 text-2xl font-bold">Connect ProPhrase to {browserName}</h1>
       <p className="mt-3 text-sm leading-6 text-text-muted">
         Bring ProPhrase into the pages where you already work.
@@ -52,13 +60,16 @@ export function ConnectExtensionClient({
         <li><strong className="text-text-primary">Share one account</strong> with the web, desktop, and mobile apps.</li>
       </ul>
       <div className="mt-6 rounded-lg bg-surface-container-low p-4 text-sm leading-6 text-text-muted">
-        It cannot access your Gemini key, Supabase service credentials, billing details, or browser history.
+        <p className="font-semibold text-text-primary">Your privacy stays protected</p>
+        <p className="mt-1">
+          ProPhrase only receives permission to connect this extension to your account and process text you choose to rewrite. Your passwords, browsing history, billing details, and private service credentials remain inaccessible.
+        </p>
       </div>
-      {error ? <p className="mt-4 text-sm text-red-700">{error}</p> : null}
+      {error ? <p aria-live="polite" className="mt-4 text-sm text-red-700">{error}</p> : null}
       <button className="mt-6 min-h-12 w-full rounded-full bg-black px-5 text-sm font-semibold text-white disabled:opacity-60" disabled={loading} onClick={() => void connect()} type="button">
-        {loading ? "Connecting..." : "Connect extension"}
+        {loading ? "Connecting..." : "Continue and connect"}
       </button>
-      <p className="mt-4 text-center text-xs text-text-muted">You can revoke this device token later by disconnecting the extension.</p>
+      <p className="mt-4 text-center text-xs text-text-muted">You can disconnect the extension anytime from ProPhrase settings.</p>
     </div>
   );
 }
