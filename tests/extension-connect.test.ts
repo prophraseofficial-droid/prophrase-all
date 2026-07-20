@@ -3,10 +3,21 @@ import test from "node:test";
 import { getSafeExtensionRedirect } from "../lib/extension/connect.ts";
 
 test("the published Chrome Web Store callback is always accepted exactly", () => {
-  const callback = "https://pmfgmjobfpminpkenehibfhmahgbgpmn.chromiumapp.org/connected";
+  const callback = "https://pmfgmjobfpmlnpkenehibfhmahgbgpmn.chromiumapp.org/connected";
+  const officialOrigin = new URL(callback).origin;
   assert.equal(getSafeExtensionRedirect(callback), callback);
   assert.equal(
-    getSafeExtensionRedirect("https://pmfgmjobfpminpkenehibfhmahgbgpmn.chromiumapp.org.evil.test/connected"),
+    getSafeExtensionRedirect(
+      "https://pmfgmjobfpmlnpkenehibfhmahgbgpmn.chromiumapp.org.evil.test/connected",
+      [officialOrigin],
+    ),
+    null,
+  );
+  assert.equal(
+    getSafeExtensionRedirect(
+      "https://pmfgmjobfpminpkenehibfhmahgbgpmn.chromiumapp.org/connected",
+      [officialOrigin],
+    ),
     null,
   );
 });

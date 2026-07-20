@@ -1,6 +1,7 @@
 const allowedRedirectDomains = [".chromiumapp.org", ".extensions.allizom.org"];
+// Chrome Web Store item ID contains a lowercase "l" in the `fpmlnpk` segment.
 const officialRedirectOrigins = [
-  "https://pmfgmjobfpminpkenehibfhmahgbgpmn.chromiumapp.org",
+  "https://pmfgmjobfpmlnpkenehibfhmahgbgpmn.chromiumapp.org",
 ];
 
 function configuredRedirectOrigins() {
