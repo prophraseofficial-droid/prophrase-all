@@ -1,4 +1,5 @@
 export const defaultGeminiModel = "gemini-2.5-flash";
+export const defaultGeminiRewriteModel = "gemini-3.1-flash-lite";
 export const defaultGeminiFallbackModels = [
   "gemini-3.1-flash-lite",
   "gemini-2.5-flash-lite",
@@ -20,8 +21,10 @@ export class GeminiModelPolicyError extends Error {
 
 export function getGeminiModelChain(
   environment: Record<string, string | undefined> = process.env,
+  primaryOverride?: string,
 ) {
-  const primary = environment.GEMINI_MODEL?.trim() || defaultGeminiModel;
+  const primary =
+    primaryOverride?.trim() || environment.GEMINI_MODEL?.trim() || defaultGeminiModel;
   const configuredFallbacks = environment.GEMINI_FALLBACK_MODELS
     || environment.GEMINI_FALLBACK_MODEL;
   const fallbacks = configuredFallbacks

@@ -10,6 +10,7 @@ import {
 } from "@/lib/ai/prompt-engine";
 import { validateSemanticInvariants } from "@/lib/ai/semantics";
 import {
+  defaultGeminiRewriteModel,
   GeminiModelPolicyError,
   getGeminiModelChain,
 } from "@/lib/ai/model-policy";
@@ -182,12 +183,17 @@ function isQuotaError(error: unknown) {
 }
 
 async function callGemini(
-  options: Omit<Parameters<typeof callGeminiModel>[0], "model">,
+  {
+    primaryModel,
+    ...options
+  }: Omit<Parameters<typeof callGeminiModel>[0], "model"> & {
+    primaryModel?: string;
+  },
 ) {
   let lastError: unknown;
   let models: string[];
   try {
-    models = getGeminiModelChain();
+    models = getGeminiModelChain(process.env, primaryModel);
   } catch (error) {
     if (!(error instanceof GeminiModelPolicyError)) throw error;
     throw new AiProviderError({
@@ -220,12 +226,15 @@ export async function rewriteWithGemini({
   instruction?: string;
   contextMessages?: AiContextMessage[];
 }) {
+  const rewriteModel =
+    process.env.GEMINI_REWRITE_MODEL?.trim() || defaultGeminiRewriteModel;
   if (!isPromptV2Enabled()) {
     const legacy = await callGemini({
       prompt: buildRewritePrompt({ text, tone, instruction, contextMessages }),
       maxOutputTokens: 360,
       thinkingLevel: "low",
       timeoutMs: GEMINI_TIMEOUT_MS,
+      primaryModel: rewriteModel,
     });
     return { ...legacy, warnings: [], repaired: false, promptVersion: "legacy" };
   }
@@ -244,6 +253,7 @@ export async function rewriteWithGemini({
     maxOutputTokens,
     thinkingLevel: "low",
     timeoutMs: GEMINI_TIMEOUT_MS,
+    primaryModel: rewriteModel,
   });
 
   let candidate = "";
@@ -286,6 +296,7 @@ export async function rewriteWithGemini({
     maxOutputTokens,
     thinkingLevel: "low",
     timeoutMs: GEMINI_TIMEOUT_MS,
+    primaryModel: rewriteModel,
   });
   let repaired;
   try {

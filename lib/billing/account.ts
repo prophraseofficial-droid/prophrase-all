@@ -307,8 +307,10 @@ export async function ensureCurrentCreditGrant(userId: string, now = new Date())
   };
 }
 
-export async function getCreditBalance(userId: string): Promise<CreditBalance> {
-  const { account, period } = await ensureCurrentCreditGrant(userId);
+export async function getCreditBalanceForGrant(
+  userId: string,
+  { account, period }: Awaited<ReturnType<typeof ensureCurrentCreditGrant>>,
+): Promise<CreditBalance> {
   const supabase = createSupabaseAdminClient();
   const { data, error } = await supabase
     .from("credit_wallets")
@@ -328,4 +330,8 @@ export async function getCreditBalance(userId: string): Promise<CreditBalance> {
     nextRefreshAt: period.expiresAt,
     periodKey: period.periodKey,
   };
+}
+
+export async function getCreditBalance(userId: string): Promise<CreditBalance> {
+  return getCreditBalanceForGrant(userId, await ensureCurrentCreditGrant(userId));
 }

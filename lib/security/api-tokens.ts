@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import type { User } from "@supabase/supabase-js";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 const tokenPrefix = "ppx_";
@@ -40,18 +41,29 @@ export async function authenticateExtensionApiToken(token: string) {
     return null;
   }
 
-  const { data: userData, error: userError } = await supabase.auth.admin.getUserById(data.user_id);
-  if (userError || !userData.user) return null;
-  const lastUsedAt = data.last_used_at
-    ? new Date(data.last_used_at).getTime()
-    : 0;
-  if (!Number.isFinite(lastUsedAt) || Date.now() - lastUsedAt >= lastUsedWriteIntervalMs) {
+  const shouldUpdateLastUsed =
+    !Number.isFinite(data.last_used_at ? new Date(data.last_used_at).getTime() : 0) ||
+    Date.now() - (data.last_used_at ? new Date(data.last_used_at).getTime() : 0) >=
+      lastUsedWriteIntervalMs;
+  if (shouldUpdateLastUsed) {
     await supabase
       .from("api_tokens")
       .update({ last_used_at: new Date().toISOString() })
       .eq("id", data.id);
   }
-  return userData.user;
+  // A valid row is already an authenticated device identity: user_id has a
+  // cascading foreign key to auth.users, while revocation and expiry are
+  // checked above. Avoid a second remote Auth lookup on every extension call.
+  return {
+    id: data.user_id,
+    aud: "authenticated",
+    role: "authenticated",
+    email: undefined,
+    app_metadata: {},
+    user_metadata: {},
+    identities: [],
+    created_at: "",
+  } as User;
 }
 
 export async function revokeExtensionApiToken(token: string) {

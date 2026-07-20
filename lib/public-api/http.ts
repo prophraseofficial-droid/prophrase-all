@@ -3,8 +3,10 @@ import { apiError } from "@/lib/security/validation";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "Authorization, Content-Type, Idempotency-Key",
+  "Access-Control-Expose-Headers": "Server-Timing",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Max-Age": "86400",
+  "Timing-Allow-Origin": "*",
 };
 
 export function requirePublicApiBearer(request: Request) {

@@ -30,8 +30,18 @@ import {
 } from "@/lib/usage/usage";
 
 export async function POST(request: Request) {
+  const requestStartedAt = performance.now();
+  let stageStartedAt = requestStartedAt;
+  const serverTimings: string[] = [];
+  const recordTiming = (name: string) => {
+    const now = performance.now();
+    serverTimings.push(`${name};dur=${(now - stageStartedAt).toFixed(1)}`);
+    stageStartedAt = now;
+  };
+
   const { user, response } = await requireUser(request);
   if (!user) return response;
+  recordTiming("auth");
 
   const rateLimit = checkRateLimit(`rewrite:${user.id}`, 20, 60_000);
   if (!rateLimit.allowed) {
@@ -151,6 +161,7 @@ export async function POST(request: Request) {
       }
       isNewThread = true;
     }
+    recordTiming("preflight");
 
     creditContext = await prepareCreditOperation({
       userId: user.id,
@@ -159,6 +170,7 @@ export async function POST(request: Request) {
       idempotencyKey: request.headers.get("idempotency-key"),
       feature: "core_rephrase",
     });
+    recordTiming("credit_reserve");
 
     let aiResult: Awaited<ReturnType<typeof rewriteWithGemini>>;
     try {
@@ -211,6 +223,7 @@ export async function POST(request: Request) {
         credits ? { credits } : undefined,
       );
     }
+    recordTiming("gemini");
 
     if (!threadId) {
       const { data: thread, error: threadError } = await supabase
@@ -227,7 +240,7 @@ export async function POST(request: Request) {
       threadId = thread.id;
     }
 
-    const { data: insertedMessages, error: insertError } = await supabase
+    const messageInsertPromise = supabase
       .from("messages")
       .insert([
         {
@@ -251,16 +264,8 @@ export async function POST(request: Request) {
       .select("*")
       .order("created_at", { ascending: true });
 
-    if (insertError || !insertedMessages || insertedMessages.length < 2) {
-      throw insertError ?? new Error("MESSAGE_INSERT_FAILED");
-    }
-    const userMessage = insertedMessages.find((message) => message.role === "user");
-    const assistantMessage = insertedMessages.find(
-      (message) => message.role === "assistant",
-    );
-    if (!userMessage || !assistantMessage) throw new Error("MESSAGE_INSERT_FAILED");
-
-    const [dailyUsage, threadUpdateResult] = await Promise.all([
+    const [messageInsertResult, dailyUsage, threadUpdateResult] = await Promise.all([
+      messageInsertPromise,
       incrementUsage(user.id, {
         rewriteDelta: 1,
         threadDelta: isNewThread ? 1 : 0,
@@ -277,13 +282,24 @@ export async function POST(request: Request) {
         .select("id, title, tone, is_favorite, updated_at")
         .maybeSingle(),
     ]);
+    const { data: insertedMessages, error: insertError } = messageInsertResult;
+    if (insertError || !insertedMessages || insertedMessages.length < 2) {
+      throw insertError ?? new Error("MESSAGE_INSERT_FAILED");
+    }
+    const userMessage = insertedMessages.find((message) => message.role === "user");
+    const assistantMessage = insertedMessages.find(
+      (message) => message.role === "assistant",
+    );
+    if (!userMessage || !assistantMessage) throw new Error("MESSAGE_INSERT_FAILED");
     if (threadUpdateResult.error) throw threadUpdateResult.error;
+    recordTiming("persistence");
 
     const usage = buildUsageSummary(planData.profile, dailyUsage);
     releaseReservationOnFailure = false;
     const credits = await commitCreditOperation(creditContext);
+    recordTiming("credit_commit");
 
-    return NextResponse.json({
+    const result = NextResponse.json({
       requestId: creditContext.requestId,
       result: aiResult.text,
       warnings: aiResult.warnings,
@@ -303,6 +319,14 @@ export async function POST(request: Request) {
         updated_at: now,
       },
     });
+    result.headers.set(
+      "Server-Timing",
+      [
+        ...serverTimings,
+        `total;dur=${(performance.now() - requestStartedAt).toFixed(1)}`,
+      ].join(", "),
+    );
+    return result;
   } catch (caughtError) {
     if (releaseReservationOnFailure) {
       await releaseCreditOperation(user.id, creditContext, "request_failed");

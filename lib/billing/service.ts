@@ -1,5 +1,9 @@
 import crypto from "crypto";
-import { getCreditBalance, ensureCurrentCreditGrant } from "@/lib/billing/account";
+import {
+  ensureCurrentCreditGrant,
+  getCreditBalance,
+  getCreditBalanceForGrant,
+} from "@/lib/billing/account";
 import { estimateCreditCost } from "@/lib/billing/credits";
 import { getBillingFlags } from "@/lib/billing/flags";
 import { getPlanDefinition } from "@/lib/billing/catalog";
@@ -113,7 +117,8 @@ export async function prepareCreditOperation({
     };
   }
 
-  const { account } = await ensureCurrentCreditGrant(userId);
+  const ensuredGrant = await ensureCurrentCreditGrant(userId);
+  const { account } = ensuredGrant;
   const plan = getPlanDefinition(account.plan);
   if (!flags.creditBillingShadowMode && estimate.billableCharacters > plan.maxInputCharacters) {
     const requiredPlan = estimate.billableCharacters <= 2500 ? "plus" : "pro";
@@ -130,7 +135,7 @@ export async function prepareCreditOperation({
     );
   }
 
-  const balance = await getCreditBalance(userId);
+  const balance = await getCreditBalanceForGrant(userId, ensuredGrant);
   const supabase = createSupabaseAdminClient();
   if (flags.creditBillingShadowMode) {
     await supabase.from("credit_shadow_estimates").upsert({

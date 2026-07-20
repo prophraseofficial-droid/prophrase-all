@@ -47,7 +47,8 @@ export async function requireUser(request?: Request) {
           response: apiError("UNAUTHORIZED", "This ProPhrase device token is invalid, expired, or revoked.", 401),
         };
       }
-      await ensureProfileForUser(user);
+      // Device tokens are issued only after the signed-in flow has ensured the
+      // profile. Avoid repeating that remote upsert on every extension call.
       return { user, response: null };
     }
     const supabase = bearerToken

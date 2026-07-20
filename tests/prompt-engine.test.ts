@@ -162,6 +162,10 @@ test("free-only model policy uses a free quota fallback", () => {
     "gemini-3.1-flash-lite",
     "gemini-2.5-flash-lite",
   ]);
+  assert.deepEqual(
+    getGeminiModelChain({}, "gemini-3.1-flash-lite"),
+    ["gemini-3.1-flash-lite", "gemini-2.5-flash-lite"],
+  );
   assert.throws(
     () => getGeminiModelChain({ GEMINI_MODEL: "gemini-paid-only", GEMINI_FREE_ONLY: "true" }),
     GeminiModelPolicyError,
