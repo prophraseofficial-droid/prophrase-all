@@ -1,18 +1,134 @@
 import crypto from "crypto";
 import Razorpay from "razorpay";
 
-export function getRazorpayClient() {
-  const keyId = process.env.RAZORPAY_KEY_ID;
-  const keySecret = process.env.RAZORPAY_KEY_SECRET;
+type RazorpayEnvironment = Record<string, string | undefined>;
+type RazorpayMode = "test" | "live";
 
+function modeFromKeyId(keyId: string): RazorpayMode | null {
+  if (keyId.startsWith("rzp_test_")) return "test";
+  if (keyId.startsWith("rzp_live_")) return "live";
+  return null;
+}
+
+export function validateRazorpayKeyConfiguration({
+  env = process.env,
+  requirePublicKey = false,
+}: {
+  env?: RazorpayEnvironment;
+  requirePublicKey?: boolean;
+} = {}) {
+  const keyId = env.RAZORPAY_KEY_ID?.trim();
+  const keySecret = env.RAZORPAY_KEY_SECRET?.trim();
+  const publicKeyId = env.NEXT_PUBLIC_RAZORPAY_KEY_ID?.trim();
   if (!keyId || !keySecret) {
-    throw new Error("Razorpay environment variables are not configured.");
+    throw new Error("Razorpay server credentials are not configured.");
   }
+
+  const keyMode = modeFromKeyId(keyId);
+  if (!keyMode) {
+    throw new Error("RAZORPAY_KEY_ID must be a Razorpay test or live key ID.");
+  }
+  const configuredMode = env.RAZORPAY_MODE?.trim().toLowerCase();
+  if (configuredMode && configuredMode !== "test" && configuredMode !== "live") {
+    throw new Error("RAZORPAY_MODE must be either test or live.");
+  }
+  if (configuredMode && configuredMode !== keyMode) {
+    throw new Error("RAZORPAY_MODE does not match RAZORPAY_KEY_ID.");
+  }
+  if (requirePublicKey && !publicKeyId) {
+    throw new Error("NEXT_PUBLIC_RAZORPAY_KEY_ID is not configured.");
+  }
+  if (publicKeyId && publicKeyId !== keyId) {
+    throw new Error("The public and server Razorpay key IDs do not match.");
+  }
+
+  const productionDeployment = env.VERCEL_ENV === "production" ||
+    env.APP_ENV === "production" || env.NEXT_PUBLIC_APP_ENV === "production";
+  if (productionDeployment && env.PAID_CHECKOUT_ENABLED === "true" && keyMode !== "live") {
+    throw new Error("Live Razorpay credentials are required when paid checkout is enabled in production.");
+  }
+
+  return { keyId, keySecret, publicKeyId: publicKeyId ?? null, mode: keyMode };
+}
+
+export function getRazorpayClient() {
+  const { keyId, keySecret } = validateRazorpayKeyConfiguration();
 
   return new Razorpay({
     key_id: keyId,
     key_secret: keySecret,
   });
+}
+
+export function getRazorpayCheckoutKeyId() {
+  const { publicKeyId } = validateRazorpayKeyConfiguration({ requirePublicKey: true });
+  return publicKeyId!;
+}
+
+export function assertRazorpayPlanMatches({
+  providerPlan,
+  expectedAmountPaise,
+  expectedCurrency,
+  expectedInterval,
+}: {
+  providerPlan: {
+    interval?: number;
+    period?: string;
+    item?: { amount?: number | string; currency?: string };
+  };
+  expectedAmountPaise: number;
+  expectedCurrency: string;
+  expectedInterval: "monthly" | "annual";
+}) {
+  const expectedPeriod = expectedInterval === "monthly" ? "monthly" : "yearly";
+  const amount = Number(providerPlan.item?.amount);
+  const currency = providerPlan.item?.currency?.toUpperCase();
+  if (
+    amount !== expectedAmountPaise ||
+    currency !== expectedCurrency.toUpperCase() ||
+    providerPlan.period !== expectedPeriod ||
+    providerPlan.interval !== 1
+  ) {
+    throw new Error(
+      `Razorpay plan does not match the configured ${expectedInterval} price, currency, or billing interval.`,
+    );
+  }
+}
+
+const verifiedPlans = new Map<string, Promise<void>>();
+
+export async function verifyRazorpayPlanConfiguration({
+  planId,
+  amountPaise,
+  currency,
+  interval,
+}: {
+  planId: string;
+  amountPaise: number;
+  currency: string;
+  interval: "monthly" | "annual";
+}) {
+  const { keyId } = validateRazorpayKeyConfiguration();
+  const cacheKey = `${keyId}:${planId}:${amountPaise}:${currency}:${interval}`;
+  const existing = verifiedPlans.get(cacheKey);
+  if (existing) return existing;
+
+  const verification = (async () => {
+    const providerPlan = await getRazorpayClient().plans.fetch(planId);
+    assertRazorpayPlanMatches({
+      providerPlan,
+      expectedAmountPaise: amountPaise,
+      expectedCurrency: currency,
+      expectedInterval: interval,
+    });
+  })();
+  verifiedPlans.set(cacheKey, verification);
+  try {
+    await verification;
+  } catch (error) {
+    verifiedPlans.delete(cacheKey);
+    throw error;
+  }
 }
 
 export function verifyRazorpaySubscriptionPaymentSignature({

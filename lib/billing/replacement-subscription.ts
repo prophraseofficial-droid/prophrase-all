@@ -1,6 +1,10 @@
 import crypto from "crypto";
 import { checkoutDefinition } from "@/lib/billing/plans";
-import { getRazorpayClient } from "@/lib/billing/razorpay";
+import {
+  getRazorpayCheckoutKeyId,
+  getRazorpayClient,
+  verifyRazorpayPlanConfiguration,
+} from "@/lib/billing/razorpay";
 import { planChangeCreditCycle, remainingBillingCycles, type PaidPlanSelection } from "@/lib/billing/plan-change";
 import { applyVerifiedSubscriptionEvent } from "@/lib/billing/subscriptions";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -69,8 +73,16 @@ export async function createReplacementSubscription({
   kind?: ReplacementMetadata["kind"];
 }) {
   const definition = checkoutDefinition(target.plan, target.interval);
-  const publicKeyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
-  if (!definition.razorpayPlanId || !publicKeyId) throw new Error("REPLACEMENT_NOT_CONFIGURED");
+  if (!definition.razorpayPlanId || !definition.amountPaise) {
+    throw new Error("REPLACEMENT_NOT_CONFIGURED");
+  }
+  const publicKeyId = getRazorpayCheckoutKeyId();
+  await verifyRazorpayPlanConfiguration({
+    planId: definition.razorpayPlanId,
+    amountPaise: definition.amountPaise,
+    currency: definition.currency,
+    interval: target.interval,
+  });
   const supabase = createSupabaseAdminClient();
   const requestHash = crypto.createHash("sha256")
     .update(`${userId}:${oldSubscriptionId}:${target.plan}:${target.interval}:${kind}`)

@@ -48,3 +48,19 @@ export function getMagicLinkErrorMessage(error: unknown) {
   return smtpConfigurationMessage;
 }
 
+export function getPasswordLoginErrorMessage(error: unknown) {
+  const details =
+    typeof error === "object" && error !== null
+      ? (error as AuthErrorDetails)
+      : undefined;
+  const code = typeof details?.code === "string" ? details.code : "";
+  const status = typeof details?.status === "number" ? details.status : undefined;
+
+  if (code === "over_request_rate_limit" || status === 429) {
+    return "Too many sign-in attempts. Please wait and try again.";
+  }
+  if (status !== undefined && status >= 500) {
+    return "Password sign-in is temporarily unavailable. Please try again.";
+  }
+  return "Incorrect email or password.";
+}

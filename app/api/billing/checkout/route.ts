@@ -2,7 +2,11 @@ import crypto from "crypto";
 import { NextResponse } from "next/server";
 import { checkoutDefinition } from "@/lib/billing/plans";
 import { getBillingFlags } from "@/lib/billing/flags";
-import { getRazorpayClient } from "@/lib/billing/razorpay";
+import {
+  getRazorpayCheckoutKeyId,
+  getRazorpayClient,
+  verifyRazorpayPlanConfiguration,
+} from "@/lib/billing/razorpay";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { requireTrustedMutation, requireUser } from "@/lib/security/auth";
 import { checkRateLimit } from "@/lib/security/rateLimit";
@@ -108,8 +112,10 @@ export async function POST(request: Request) {
   if (!definition.razorpayPlanId || !definition.amountPaise) {
     return apiError("CONFIGURATION_ERROR", "This billing plan is not configured.", 500);
   }
-  const publicKeyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
-  if (!publicKeyId || (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_ID !== publicKeyId)) {
+  let publicKeyId: string;
+  try {
+    publicKeyId = getRazorpayCheckoutKeyId();
+  } catch {
     return apiError("CONFIGURATION_ERROR", "Razorpay checkout is not configured.", 500);
   }
 
@@ -144,6 +150,13 @@ export async function POST(request: Request) {
   let providerSubscriptionId: string | null = null;
   let failureStage = "load_profile";
   try {
+    failureStage = "verify_plan";
+    await verifyRazorpayPlanConfiguration({
+      planId: definition.razorpayPlanId,
+      amountPaise: definition.amountPaise,
+      currency: definition.currency,
+      interval: parsed.data.interval,
+    });
     const profile = await getUserPlan(user.id);
     pendingId = crypto.randomUUID();
     failureStage = "persist_pending_checkout";

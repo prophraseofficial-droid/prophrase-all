@@ -6,7 +6,7 @@ export function subscriptionStatusForEvent(eventType: string): SubscriptionStatu
   if (["subscription.halted", "subscription.paused", "payment.failed"].includes(eventType)) return "grace_period";
   if (eventType === "subscription.cancelled") return "canceled";
   if (["subscription.completed", "subscription.expired"].includes(eventType)) return "expired";
-  if (eventType === "payment.refunded") return "refunded";
+  if (["refund.processed", "payment.refunded"].includes(eventType)) return "refunded";
   if (["payment.dispute.created", "chargeback.created"].includes(eventType)) return "chargeback";
   return null;
 }

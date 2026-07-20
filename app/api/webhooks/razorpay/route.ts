@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { NextResponse } from "next/server";
 import { planFromProviderPriceId } from "@/lib/billing/plans";
 import {
+  getRazorpayClient,
   stableWebhookEventId,
   verifyRazorpayWebhookSignature,
 } from "@/lib/billing/razorpay";
@@ -25,7 +26,7 @@ type RazorpayWebhookPayload = {
       notes?: { internal_user_id?: string };
     } };
     payment?: { entity?: {
-      id?: string; subscription_id?: string; order_id?: string;
+      id?: string; subscription_id?: string; invoice_id?: string; order_id?: string;
       amount?: number; amount_refunded?: number;
     } };
   };
@@ -41,6 +42,16 @@ function isPaidPlan(value: unknown): value is Exclude<PlanId, "free"> {
 
 function isPaidInterval(value: unknown): value is Exclude<BillingInterval, "none"> {
   return value === "monthly" || value === "annual";
+}
+
+async function subscriptionIdFromPayment(payment?: {
+  subscription_id?: string;
+  invoice_id?: string;
+}) {
+  if (payment?.subscription_id) return payment.subscription_id;
+  if (!payment?.invoice_id) return null;
+  const invoice = await getRazorpayClient().invoices.fetch(payment.invoice_id);
+  return (invoice as typeof invoice & { subscription_id?: string }).subscription_id ?? null;
 }
 
 export async function POST(request: Request) {
@@ -113,7 +124,8 @@ export async function POST(request: Request) {
         effectiveAt: unixDate(subscriptionEntity?.change_scheduled_at)?.toISOString() ?? null,
       });
     }
-    const providerSubscriptionId = subscriptionEntity?.id ?? paymentEntity?.subscription_id;
+    const providerSubscriptionId = subscriptionEntity?.id ??
+      await subscriptionIdFromPayment(paymentEntity);
     if (!providerSubscriptionId) throw new Error("SUBSCRIPTION_ID_MISSING");
     const { data: subscription, error: subscriptionError } = await supabase
       .from("subscriptions")
@@ -150,7 +162,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const isPartialRefund = eventType === "payment.refunded" &&
+    const isPartialRefund = ["refund.processed", "payment.refunded"].includes(eventType) &&
       typeof paymentEntity?.amount === "number" &&
       typeof paymentEntity.amount_refunded === "number" &&
       paymentEntity.amount_refunded < paymentEntity.amount;

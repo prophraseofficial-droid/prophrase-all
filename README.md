@@ -56,6 +56,10 @@ charged/renewal, pause/halt, resume, cancellation/completion, refund, and disput
 events. Checkout return does not activate a plan without a signed webhook or a
 verified Razorpay lookup.
 
+For the test-to-live migration sequence, exact Vercel variables, live webhook
+events, database isolation warning, and launch checks, follow
+[`docs/razorpay-live-checklist.md`](docs/razorpay-live-checklist.md).
+
 `RAZORPAY_PLAN_MONTHLY_ID` and `RAZORPAY_PLAN_YEARLY_ID` are legacy recognition
 values only. They are never used to create new checkout sessions.
 

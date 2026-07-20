@@ -19,7 +19,11 @@ import {
   razorpayScheduleForPlanChange,
 } from "@/lib/billing/plan-change";
 import { checkoutDefinition } from "@/lib/billing/plans";
-import { getRazorpayClient } from "@/lib/billing/razorpay";
+import {
+  getRazorpayCheckoutKeyId,
+  getRazorpayClient,
+  verifyRazorpayPlanConfiguration,
+} from "@/lib/billing/razorpay";
 import { createReplacementSubscription } from "@/lib/billing/replacement-subscription";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { requireTrustedMutation, requireUser } from "@/lib/security/auth";
@@ -79,8 +83,10 @@ export async function POST(request: Request) {
         .limit(1)
         .maybeSingle();
       if (pendingReplacement?.razorpay_subscription_id && pendingReplacement.status === "created") {
-        const publicKeyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
-        if (!publicKeyId) {
+        let publicKeyId: string;
+        try {
+          publicKeyId = getRazorpayCheckoutKeyId();
+        } catch {
           return apiError("CONFIGURATION_ERROR", "Razorpay checkout is not configured.", 500);
         }
         const profile = await getUserPlan(user.id);
@@ -111,7 +117,24 @@ export async function POST(request: Request) {
     return apiError("PLAN_CHANGE_PENDING", "Another plan change is already pending. Wait for it to complete before choosing a different plan.", 409);
   }
   const definition = checkoutDefinition(parsed.data.plan, parsed.data.interval);
-  if (!definition.razorpayPlanId) return apiError("CONFIGURATION_ERROR", "The selected plan is not configured.", 500);
+  if (!definition.razorpayPlanId || !definition.amountPaise) {
+    return apiError("CONFIGURATION_ERROR", "The selected plan is not configured.", 500);
+  }
+  try {
+    await verifyRazorpayPlanConfiguration({
+      planId: definition.razorpayPlanId,
+      amountPaise: definition.amountPaise,
+      currency: definition.currency,
+      interval: parsed.data.interval,
+    });
+  } catch (error) {
+    console.error("[billing] Razorpay plan configuration check failed", {
+      plan: parsed.data.plan,
+      interval: parsed.data.interval,
+      description: error instanceof Error ? error.message : null,
+    });
+    return apiError("CONFIGURATION_ERROR", "The selected plan is not configured correctly.", 500);
+  }
   const requestHash = crypto.createHash("sha256").update(`${parsed.data.plan}:${parsed.data.interval}`).digest("hex");
   const { data: existingKey } = await supabase.from("billing_idempotency_keys")
     .select("request_hash, status").eq("user_id", user.id)

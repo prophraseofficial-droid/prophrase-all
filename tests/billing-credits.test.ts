@@ -23,7 +23,9 @@ import { resolvePaidCreditCycle } from "../lib/billing/dates.ts";
 import { sanitizeBillingAnalyticsMetadata } from "../lib/billing/analytics.ts";
 import crypto from "node:crypto";
 import {
+  assertRazorpayPlanMatches,
   stableWebhookEventId,
+  validateRazorpayKeyConfiguration,
   verifyRazorpayWebhookSignature,
 } from "../lib/billing/razorpay.ts";
 import { subscriptionStatusForEvent } from "../lib/billing/provider-events.ts";
@@ -208,6 +210,7 @@ test("maps provider lifecycle events without granting unknown events", () => {
   assert.equal(subscriptionStatusForEvent("subscription.cancelled"), "canceled");
   assert.equal(subscriptionStatusForEvent("subscription.updated"), "active");
   assert.equal(subscriptionStatusForEvent("payment.refunded"), "refunded");
+  assert.equal(subscriptionStatusForEvent("refund.processed"), "refunded");
   assert.equal(subscriptionStatusForEvent("payment.dispute.created"), "chargeback");
   assert.equal(subscriptionStatusForEvent("unrecognized.event"), null);
 });
@@ -370,4 +373,48 @@ test("verifies Razorpay webhook signatures over the exact raw body", () => {
     if (previous === undefined) delete process.env.RAZORPAY_WEBHOOK_SECRET;
     else process.env.RAZORPAY_WEBHOOK_SECRET = previous;
   }
+});
+
+test("rejects mixed Razorpay modes and test keys in paid production", () => {
+  const base = {
+    RAZORPAY_MODE: "live",
+    RAZORPAY_KEY_ID: "rzp_live_example",
+    RAZORPAY_KEY_SECRET: "secret",
+    NEXT_PUBLIC_RAZORPAY_KEY_ID: "rzp_live_example",
+  };
+  assert.equal(validateRazorpayKeyConfiguration({ env: base }).mode, "live");
+  assert.throws(() => validateRazorpayKeyConfiguration({
+    env: { ...base, NEXT_PUBLIC_RAZORPAY_KEY_ID: "rzp_test_example" },
+    requirePublicKey: true,
+  }), /do not match/);
+  assert.throws(() => validateRazorpayKeyConfiguration({
+    env: {
+      ...base,
+      RAZORPAY_MODE: "test",
+      RAZORPAY_KEY_ID: "rzp_test_example",
+      NEXT_PUBLIC_RAZORPAY_KEY_ID: "rzp_test_example",
+      VERCEL_ENV: "production",
+      PAID_CHECKOUT_ENABLED: "true",
+    },
+  }), /Live Razorpay credentials/);
+});
+
+test("validates Razorpay plan price, currency, and frequency", () => {
+  const monthlyPlan = {
+    period: "monthly",
+    interval: 1,
+    item: { amount: 9900, currency: "INR" },
+  };
+  assert.doesNotThrow(() => assertRazorpayPlanMatches({
+    providerPlan: monthlyPlan,
+    expectedAmountPaise: 9900,
+    expectedCurrency: "INR",
+    expectedInterval: "monthly",
+  }));
+  assert.throws(() => assertRazorpayPlanMatches({
+    providerPlan: monthlyPlan,
+    expectedAmountPaise: 10_900,
+    expectedCurrency: "INR",
+    expectedInterval: "monthly",
+  }), /does not match/);
 });

@@ -397,9 +397,15 @@ export default defineContentScript({
     document.addEventListener("keyup", scheduleSelectionCheck, true);
     document.addEventListener("pointerdown", (event) => {
       if (event.composedPath().includes(host)) return;
-      if (panelOpen) hideAssistant();
+      if (panelOpen || bubble.style.display !== "none") hideAssistant();
     }, true);
-    window.addEventListener("scroll", hideAssistant, true);
-    window.addEventListener("resize", hideAssistant);
+    window.addEventListener("resize", () => {
+      if (!selectionContext) return;
+      if (panelOpen) {
+        positionPanel(selectionContext);
+      } else if (bubble.style.display !== "none") {
+        positionBubble(selectionContext);
+      }
+    });
   },
 });

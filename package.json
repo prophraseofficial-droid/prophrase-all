@@ -10,6 +10,7 @@
     "test": "node --experimental-strip-types --experimental-specifier-resolution=node --test tests/*.test.ts",
     "marketing:diagnose:linkedin": "node scripts/diagnose-linkedin-marketing.mjs",
     "billing:admin": "node scripts/billing-admin.mjs",
+    "billing:verify-razorpay": "node scripts/verify-razorpay-config.mjs",
     "security:client-bundle": "node scripts/check-client-secrets.mjs",
     "assets:transparent-logo": "node scripts/make-transparent-logo.mjs",
     "assets:extension-icons": "node scripts/sync-extension-icons.mjs",
