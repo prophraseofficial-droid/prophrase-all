@@ -32,11 +32,11 @@ const protectedPatterns = [
   /(?:^|\s)(?:\.?\.?\/|~\/|[A-Za-z]:\\)[^\s,;]+/gm,
   /\b(?:npm|pnpm|yarn|git|docker|kubectl|curl|ssh|python|node)\s+[^\n]+/gi,
 ];
-const negationPattern = /\b(?:not|no|never|cannot|can't|cant|won't|will not|isn't|is not|aren't|are not|wasn't|weren't|haven't|hasn't|hadn't|don't|doesn't|didn't|did not|wouldn't|shouldn't|couldn't|unable)\b/gi;
-const negationCheckPattern = /\b(?:not|no|never|cannot|can't|cant|won't|will not|isn't|is not|aren't|are not|wasn't|weren't|haven't|hasn't|hadn't|don't|doesn't|didn't|did not|wouldn't|shouldn't|couldn't|unable)\b/i;
+const negationPattern = /\b(?:not|no|never|cannot|can['’]?t|cant|won['’]?t|will not|isn['’]?t|is not|aren['’]?t|are not|wasn['’]?t|weren['’]?t|haven['’]?t|hasn['’]?t|hadn['’]?t|don['’]?t|doesn['’]?t|didn['’]?t|did not|wouldn['’]?t|shouldn['’]?t|couldn['’]?t|unable)\b/gi;
+const negationCheckPattern = /\b(?:not|no|never|cannot|can['’]?t|cant|won['’]?t|will not|isn['’]?t|is not|aren['’]?t|are not|wasn['’]?t|weren['’]?t|haven['’]?t|hasn['’]?t|hadn['’]?t|don['’]?t|doesn['’]?t|didn['’]?t|did not|wouldn['’]?t|shouldn['’]?t|couldn['’]?t|unable)\b/i;
 const uncertaintyPattern = /\b(?:may|might|perhaps|possibly|probably|unsure|uncertain|not sure|need to check|subject to)\b/gi;
 const conditionPattern = /\b(?:if|unless|provided that|subject to|depending on|when)\b/gi;
-const refusalPattern = /\b(?:cannot|can't|cant|won't|will not|unable|not able|decline|refuse)\b/i;
+const refusalPattern = /\b(?:cannot|can['’]?t|cant|won['’]?t|will not|unable|not able|decline|refuse)\b/i;
 const commitmentPattern = /\b(?:i|we)\s+(?:will|shall|commit|promise|guarantee|can deliver|can complete)\b/gi;
 const temporalPattern = /\b(?:today|tomorrow|yesterday|monday|tuesday|wednesday|thursday|friday|saturday|sunday|eod|cob|\d{1,2}(?::\d{2})?\s?(?:am|pm)|\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*)\b/gi;
 const promptInjectionPattern = /\b(?:ignore|override|reveal|show|print|repeat)\b[\s\S]{0,60}\b(?:instructions?|prompt|schema|secret|system message|api key)\b/i;
@@ -72,6 +72,12 @@ export function preprocessMessage(text: string): SemanticMetadata {
 function hasAny(text: string, values: string[]) {
   const normalized = text.toLowerCase();
   return values.some((value) => normalized.includes(value.toLowerCase()));
+}
+
+function preservesNoProblemMeaning(originalText: string, outputText: string) {
+  const originalUsesNoProblem = /\b(?:no|not a)\s+(?:problem|probelm|issue|concern|worr(?:y|ies))\b/i.test(originalText);
+  if (!originalUsesNoProblem) return false;
+  return /\b(?:fine|okay|ok|all good|not a problem|no (?:problem|issue|concern|worries)|should be fine|won['’]?t be (?:a )?problem)\b/i.test(outputText);
 }
 
 export function validateSemanticInvariants({
@@ -119,7 +125,11 @@ export function validateSemanticInvariants({
       message: `Remove introduced dates or times: ${introducedTemporal.join(", ")}.`,
     });
   }
-  if (metadata.negations.length && !negationCheckPattern.test(output)) {
+  if (
+    metadata.negations.length &&
+    !negationCheckPattern.test(output) &&
+    !preservesNoProblemMeaning(originalText, output)
+  ) {
     failures.push({ code: "negation_removed", severity: "critical", message: "Preserve the original negation." });
   }
   if (metadata.uncertainty.length && !hasAny(output, ["may", "might", "possibly", "perhaps", "not sure", "uncertain", "need to check", "subject to"])) {

@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { resolvePublicUrl } from "../mobile/src/config.ts";
 
-test("mobile production endpoints cannot downgrade bearer traffic to HTTP", () => {
-  assert.equal(resolvePublicUrl("https://api.example.com", true), "https://api.example.com");
+test("mobile production endpoints are pinned and cannot redirect bearer traffic", () => {
+  assert.equal(resolvePublicUrl("https://api.example.com", true), "https://prophrase.in");
+  assert.equal(resolvePublicUrl("https://prophrase.in.attacker.example", true), "https://prophrase.in");
   assert.equal(resolvePublicUrl("http://api.example.com", true), "https://prophrase.in");
   assert.equal(resolvePublicUrl("http://localhost:3000", true), "https://prophrase.in");
   assert.equal(resolvePublicUrl("http://localhost:3000", false), "http://localhost:3000");

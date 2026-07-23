@@ -1,5 +1,7 @@
 const PRODUCTION_APP_URL = "https://prophrase.in";
 const DEVELOPMENT_APP_URL = "http://localhost:3000";
+const PRODUCTION_SUPABASE_URL = "https://einsripvtpylhyhxyfsk.supabase.co";
+const MOBILE_AUTH_REDIRECT_URL = "prophrase://auth/callback";
 
 function cleanUrl(value: string) {
   return value.trim().replace(/\/+$/, "");
@@ -31,14 +33,29 @@ export function resolvePublicUrl(
   value: string | undefined,
   production = isProductionAppEnv(),
 ) {
+  if (production) return PRODUCTION_APP_URL;
+
   const cleanedUrl = value ? cleanUrl(value) : "";
 
   if (cleanedUrl) {
     try {
       const parsed = new URL(cleanedUrl);
+      const isProPhraseProduction =
+        parsed.protocol === "https:" &&
+        parsed.hostname === "prophrase.in" &&
+        parsed.pathname === "/" &&
+        !parsed.username &&
+        !parsed.password &&
+        !parsed.search &&
+        !parsed.hash;
+      const isLocalDevelopment =
+        (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+        isDevelopmentHost(parsed.hostname) &&
+        !parsed.username &&
+        !parsed.password;
       if (
-        parsed.protocol === "https:" ||
-        (!production && parsed.protocol === "http:" && isDevelopmentHost(parsed.hostname))
+        isProPhraseProduction ||
+        isLocalDevelopment
       ) {
         return cleanedUrl;
       }
@@ -47,13 +64,51 @@ export function resolvePublicUrl(
     }
   }
 
-  return production ? PRODUCTION_APP_URL : DEVELOPMENT_APP_URL;
+  return DEVELOPMENT_APP_URL;
+}
+
+export function resolveSupabaseUrl(
+  value: string | undefined,
+  production = isProductionAppEnv(),
+) {
+  if (production) return PRODUCTION_SUPABASE_URL;
+
+  const cleanedUrl = value ? cleanUrl(value) : "";
+
+  if (!cleanedUrl) return "";
+
+  try {
+    const parsed = new URL(cleanedUrl);
+    const isSupabaseCloud =
+      parsed.protocol === "https:" &&
+      parsed.hostname === new URL(PRODUCTION_SUPABASE_URL).hostname &&
+      parsed.pathname === "/" &&
+      !parsed.username &&
+      !parsed.password &&
+      !parsed.search &&
+      !parsed.hash;
+    const isLocalDevelopment =
+      parsed.protocol === "http:" && isDevelopmentHost(parsed.hostname);
+
+    if (isSupabaseCloud || isLocalDevelopment) return cleanedUrl;
+  } catch {
+    // Return an empty value so local configuration fails closed.
+  }
+
+  return "";
+}
+
+export function resolveRazorpayCheckoutEnabled(value: string | undefined) {
+  return value === "true";
 }
 
 export const appConfig = {
   appEnv: process.env.EXPO_PUBLIC_APP_ENV ?? "development",
   apiBaseUrl: resolvePublicUrl(process.env.EXPO_PUBLIC_API_BASE_URL),
-  authRedirectUrl: process.env.EXPO_PUBLIC_AUTH_REDIRECT_URL?.trim() ?? "",
+  authRedirectUrl: MOBILE_AUTH_REDIRECT_URL,
+  razorpayCheckoutEnabled: resolveRazorpayCheckoutEnabled(
+    process.env.EXPO_PUBLIC_RAZORPAY_CHECKOUT_ENABLED,
+  ),
   googleAndroidClientId:
     process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID?.trim() ?? "",
   googleIosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID?.trim() ?? "",
@@ -61,4 +116,8 @@ export const appConfig = {
   webBaseUrl: resolvePublicUrl(
     process.env.EXPO_PUBLIC_WEB_BASE_URL ?? process.env.EXPO_PUBLIC_API_BASE_URL,
   ),
+  privacyPolicyUrl: "https://prophrase.in/legal#privacy",
+  termsUrl: "https://prophrase.in/legal#terms",
+  privacyEmail: "privacy@prophrase.in",
+  supportEmail: "prophraseofficial@gmail.com",
 };

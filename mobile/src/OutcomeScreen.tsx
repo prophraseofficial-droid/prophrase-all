@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import * as Clipboard from "expo-clipboard";
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -12,27 +13,35 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { prepareOutcomeMessage } from "./api";
+import { createUniversalCopy, prepareOutcomeMessage } from "./api";
 import { colors, shadow, spacing } from "./theme";
-import type { AppSession, IntentType, PreferenceOptions, RecipientType, UserPreferences } from "./types";
+import type { AppSession, CommunicationChannel, IntentType, OutcomeAssistantResponse, PreferenceOptions, RecipientType, UserPreferences } from "./types";
 
 type SelectorKind = "recipient" | "intent" | null;
 
-export function OutcomeScreen({ session, preferences, options }: {
+export function OutcomeScreen({ session, preferences, options, deviceId, deviceLabel }: {
   session: AppSession;
   preferences: UserPreferences;
   options: PreferenceOptions;
+  deviceId: string;
+  deviceLabel: string;
 }) {
   const [message, setMessage] = useState("");
   const [recipient, setRecipient] = useState<RecipientType | null>(null);
   const [intent, setIntent] = useState<IntentType | null>(null);
+  const [channel, setChannel] = useState<CommunicationChannel>(
+    preferences.outcomeAssistant.defaultChannel === "auto"
+      ? "email"
+      : preferences.outcomeAssistant.defaultChannel,
+  );
   const [selector, setSelector] = useState<SelectorKind>(null);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const insets = useSafeAreaInsets();
-  const [variants, setVariants] = useState<Array<{ id: string; label: string; message: string; readerInterpretation: string }>>([]);
+  const [understoodIntent, setUnderstoodIntent] = useState("");
+  const [variants, setVariants] = useState<OutcomeAssistantResponse["variants"]>([]);
   const [selectedVariant, setSelectedVariant] = useState(preferences.outcomeAssistant.defaultVariant);
   const recipientById = Object.fromEntries(options.recipients.map((item) => [item.id, item]));
   const intentById = Object.fromEntries(options.intents.map((item) => [item.id, item]));
@@ -52,8 +61,9 @@ export function OutcomeScreen({ session, preferences, options }: {
         originalText: message.trim(),
         recipient,
         intent,
-        channel: preferences.outcomeAssistant.defaultChannel === "auto" ? "email" : preferences.outcomeAssistant.defaultChannel,
+        channel,
       });
+      setUnderstoodIntent(response.understoodIntent);
       setVariants(response.variants);
       setSelectedVariant(preferences.outcomeAssistant.defaultVariant);
     } catch (caught) {
@@ -66,6 +76,24 @@ export function OutcomeScreen({ session, preferences, options }: {
     if (!selected) return;
     await Clipboard.setStringAsync(selected.message);
     setStatus("Copied to this phone.");
+  }
+
+  async function copySelectedVariantUniversally() {
+    const selected = variants.find((variant) => variant.id === selectedVariant);
+    if (!selected || !deviceId) return;
+    setStatus("Preparing Universal Copy...");
+    try {
+      await createUniversalCopy({
+        token: session.accessToken,
+        deviceId,
+        deviceLabel,
+        text: selected.message,
+      });
+      await Clipboard.setStringAsync(selected.message);
+      setStatus("Universal Copy is ready for one trusted device.");
+    } catch (caught) {
+      setStatus(caught instanceof Error ? caught.message : "Unable to create Universal Copy.");
+    }
   }
 
   const visibleRecipients = recipient && !preferences.outcomeAssistant.favoriteRecipients.includes(recipient)
@@ -91,10 +119,15 @@ export function OutcomeScreen({ session, preferences, options }: {
       <Text style={styles.sectionTitle}>What should this message achieve?</Text>
       <View style={styles.wrap}>{visibleIntents.map((id) => <Pressable key={id} onPress={() => setIntent(id)} style={[styles.chip, intent === id && styles.chipActive]}><Text style={[styles.chipText, intent === id && styles.chipTextActive]}>{intentById[id]?.label ?? id}</Text></Pressable>)}<Pressable onPress={() => { setSearch(""); setSelector("intent"); }} style={styles.chip}><Text style={styles.chipText}>More</Text></Pressable></View>
 
-      {error ? <Text accessibilityLiveRegion="assertive" style={styles.error}>{error}</Text> : null}
-      <Pressable disabled={loading} onPress={() => void generate()} style={[styles.primary, loading && styles.disabled]}><Text style={styles.primaryText}>{loading ? "Preparing..." : "Prepare my message"}</Text></Pressable>
+      <Text style={styles.sectionTitle}>Where are you sending it?</Text>
+      <ScrollView contentContainerStyle={styles.channelRow} horizontal showsHorizontalScrollIndicator={false}>
+        {options.channels.map((item) => <Pressable accessibilityRole="button" accessibilityState={{ selected: channel === item.id }} key={item.id} onPress={() => setChannel(item.id)} style={[styles.chip, channel === item.id && styles.chipActive]}><Text style={[styles.chipText, channel === item.id && styles.chipTextActive]}>{item.label}</Text></Pressable>)}
+      </ScrollView>
 
-      {variants.length ? <View style={styles.results}><Text style={styles.resultsTitle}>Choose your result</Text><View style={styles.variantTabs}>{variants.map((variant) => <Pressable accessibilityRole="button" accessibilityState={{ selected: selectedVariant === variant.id }} key={variant.id} onPress={() => { setSelectedVariant(variant.id as "safe" | "balanced" | "firm"); setStatus(""); }} style={[styles.variantTab, selectedVariant === variant.id && styles.variantTabActive]}><Text adjustsFontSizeToFit minimumFontScale={0.78} numberOfLines={1} style={[styles.variantTabText, selectedVariant === variant.id && styles.variantTabTextActive]}>{variant.label}</Text></Pressable>)}</View>{variants.filter((variant) => variant.id === selectedVariant).map((variant) => <View style={styles.resultCard} key={variant.id}><Text style={styles.resultMessage}>{variant.message}</Text><Text style={styles.readerLabel}>How it may read</Text><Text style={styles.readerCopy}>{variant.readerInterpretation}</Text><Pressable accessibilityRole="button" onPress={() => void copySelectedVariant()} style={styles.copyButton}><Text style={styles.copyButtonText}>Copy</Text></Pressable>{status ? <Text style={styles.status}>{status}</Text> : null}</View>)}</View> : null}
+      {error ? <Text accessibilityLiveRegion="assertive" style={styles.error}>{error}</Text> : null}
+      <Pressable disabled={loading} onPress={() => void generate()} style={[styles.primary, loading && styles.disabled]}>{loading ? <ActivityIndicator color="#fff" /> : null}<Text style={styles.primaryText}>{loading ? "Preparing..." : "Prepare my message"}</Text></Pressable>
+
+      {variants.length ? <View style={styles.results}><Text style={styles.resultsTitle}>Choose your result</Text>{understoodIntent ? <View style={styles.intentCard}><Text style={styles.readerLabel}>UNDERSTOOD INTENT</Text><Text style={styles.readerCopy}>{understoodIntent}</Text></View> : null}<View style={styles.variantTabs}>{variants.map((variant) => <Pressable accessibilityRole="button" accessibilityState={{ selected: selectedVariant === variant.id }} key={variant.id} onPress={() => { setSelectedVariant(variant.id); setStatus(""); }} style={[styles.variantTab, selectedVariant === variant.id && styles.variantTabActive]}><Text adjustsFontSizeToFit minimumFontScale={0.78} numberOfLines={1} style={[styles.variantTabText, selectedVariant === variant.id && styles.variantTabTextActive]}>{variant.label}</Text></Pressable>)}</View>{variants.filter((variant) => variant.id === selectedVariant).map((variant) => <View style={styles.resultCard} key={variant.id}><Text style={styles.resultMessage}>{variant.message}</Text><Text style={styles.readerLabel}>WHY THIS WORKS</Text><Text style={styles.readerCopy}>{variant.explanation}</Text><Text style={styles.readerLabel}>HOW IT MAY READ</Text><Text style={styles.readerCopy}>{variant.readerInterpretation}</Text><View style={styles.actionRow}><Pressable accessibilityRole="button" onPress={() => void copySelectedVariant()} style={[styles.copyButton, styles.actionButton]}><Text style={styles.copyButtonText}>Copy</Text></Pressable><Pressable accessibilityRole="button" onPress={() => void copySelectedVariantUniversally()} style={[styles.copyButton, styles.actionButton]}><Text style={styles.copyButtonText}>Universal</Text></Pressable></View>{status ? <Text accessibilityLiveRegion="polite" style={styles.status}>{status}</Text> : null}</View>)}</View> : null}
     </ScrollView>
     </KeyboardAvoidingView>
 
@@ -171,6 +204,10 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 8,
   },
+  channelRow: {
+    gap: 8,
+    paddingRight: spacing.screen,
+  },
   chip: {
     backgroundColor: colors.surfaceCard,
     borderColor: colors.border,
@@ -203,6 +240,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: colors.primary,
     borderRadius: 10,
+    flexDirection: "row",
+    gap: 10,
     justifyContent: "center",
     minHeight: 52,
     marginTop: 24,
@@ -224,6 +263,14 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 22,
     fontWeight: "800",
+  },
+  intentCard: {
+    backgroundColor: colors.surfaceWarm,
+    borderColor: colors.accent,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 14,
+    padding: 14,
   },
   variantTabs: {
     backgroundColor: colors.surfaceLow,
@@ -286,6 +333,16 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginTop: 18,
     minHeight: 44,
+  },
+  actionRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 18,
+  },
+  actionButton: {
+    flex: 1,
+    marginTop: 0,
+    paddingHorizontal: 8,
   },
   copyButtonText: {
     color: colors.text,

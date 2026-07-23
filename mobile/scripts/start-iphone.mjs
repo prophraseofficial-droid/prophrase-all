@@ -48,7 +48,6 @@ const child = spawn(
       REACT_NATIVE_PACKAGER_HOSTNAME: lanAddress,
       EXPO_PUBLIC_API_BASE_URL: apiBaseUrl,
       EXPO_PUBLIC_WEB_BASE_URL: apiBaseUrl,
-      EXPO_PUBLIC_AUTH_REDIRECT_URL: authRedirectUrl,
       EXPO_OFFLINE: "1",
       EXPO_NO_TELEMETRY: "1",
       EXPO_NO_REDIRECT_PAGE: "1",

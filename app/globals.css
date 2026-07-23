@@ -2578,8 +2578,27 @@ html {
 
   .universal-badge {
     bottom: auto;
+    font-size: 13px;
+    gap: 7px;
     left: 50%;
-    top: 590px;
+    line-height: 1;
+    max-width: calc(100% - 48px);
+    min-height: 44px;
+    padding: 11px 17px;
+    top: 594px;
+    white-space: nowrap;
+    z-index: 3;
+  }
+
+  .universal-badge svg {
+    flex: 0 0 auto;
+    height: 19px;
+    width: 19px;
+  }
+
+  .universal-badge > span {
+    line-height: 1;
+    white-space: nowrap;
   }
 
   .styles-demo,

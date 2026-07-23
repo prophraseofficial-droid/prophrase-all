@@ -1,4 +1,5 @@
-import { useState } from "react";
+import type { ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { updatePreferences } from "./api";
@@ -6,6 +7,34 @@ import { colors, shadow, spacing } from "./theme";
 import type { PreferenceOptions, QuickStyleId, Tone, UserPreferences } from "./types";
 
 const recommended: QuickStyleId[] = ["professional", "polite", "shorter", "human", "firmer"];
+
+function PreferenceGroup({
+  title,
+  summary,
+  children,
+}: {
+  title: string;
+  summary: string;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return <View style={styles.preferenceGroup}>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ expanded: open }}
+      onPress={() => setOpen((value) => !value)}
+      style={styles.preferenceGroupHeader}
+    >
+      <View style={styles.preferenceGroupCopy}>
+        <Text style={styles.preferenceGroupTitle}>{title}</Text>
+        <Text numberOfLines={2} style={styles.preferenceGroupSummary}>{summary}</Text>
+      </View>
+      <Text style={styles.preferenceGroupChevron}>{open ? "−" : "+"}</Text>
+    </Pressable>
+    {open ? <View style={styles.preferenceGroupBody}>{children}</View> : null}
+  </View>;
+}
 
 export function QuickStylesOnboardingScreen({ token, preferences, options, onComplete }: {
   token: string;
@@ -76,13 +105,25 @@ export function QuickStylesPicker({ token, preferences, options, selectedTone, o
 }) {
   const [open, setOpen] = useState(false);
   const [replaceId, setReplaceId] = useState<QuickStyleId | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
   const insets = useSafeAreaInsets();
   const byId = Object.fromEntries(options.quickStyles.map((style) => [style.id, style]));
   const active = options.quickStyles.find((style) => style.tone === selectedTone);
 
   async function persist(next: QuickStyleId[], defaultStyle = preferences.rephrase.defaultStyle) {
-    const state = await updatePreferences({ token, patch: { rephrase: { quickStyles: next, defaultStyle } } });
-    onUpdate(state.preferences);
+    setBusy(true);
+    setError("");
+    try {
+      const state = await updatePreferences({ token, patch: { rephrase: { quickStyles: next, defaultStyle } } });
+      onUpdate(state.preferences);
+      return true;
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not update Quick Styles.");
+      return false;
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function pin(id: QuickStyleId) {
@@ -95,15 +136,15 @@ export function QuickStylesPicker({ token, preferences, options, selectedTone, o
     if (!replaceId) return;
     const next = preferences.rephrase.quickStyles.map((id) => id === existing ? replaceId : id);
     const defaultStyle = preferences.rephrase.defaultStyle === existing ? replaceId : preferences.rephrase.defaultStyle;
-    await persist(next, defaultStyle);
-    setReplaceId(null);
+    if (await persist(next, defaultStyle)) setReplaceId(null);
   }
 
   return <>
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickRow}>
-      {preferences.rephrase.quickStyles.map((id) => <Pressable key={id} onPress={() => onSelect(byId[id].tone)} style={[styles.quickChip, selectedTone === byId[id].tone && styles.quickChipActive]}><Text style={[styles.quickChipText, selectedTone === byId[id].tone && styles.quickChipTextActive]}>{byId[id].label}</Text></Pressable>)}
-      <Pressable onPress={() => setOpen(true)} style={styles.quickChip}><Text style={styles.quickChipText}>More</Text></Pressable>
+      {preferences.rephrase.quickStyles.map((id) => <Pressable disabled={busy} key={id} onPress={() => onSelect(byId[id].tone)} style={[styles.quickChip, selectedTone === byId[id].tone && styles.quickChipActive, busy && styles.disabled]}><Text style={[styles.quickChipText, selectedTone === byId[id].tone && styles.quickChipTextActive]}>{byId[id].label}</Text></Pressable>)}
+      <Pressable disabled={busy} onPress={() => setOpen(true)} style={[styles.quickChip, busy && styles.disabled]}><Text style={styles.quickChipText}>More</Text></Pressable>
     </ScrollView>
+    {error ? <Text accessibilityLiveRegion="assertive" style={styles.inlineError}>{error}</Text> : null}
     <Modal animationType="slide" transparent visible={open} onRequestClose={() => setOpen(false)}>
       <Pressable style={styles.backdrop} onPress={() => setOpen(false)} />
       <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, spacing.screen) }]}><View style={styles.handle} /><Text style={styles.sheetTitle}>All styles</Text><ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>{options.quickStyleGroups.map((group) => <View key={group.id}><Text style={styles.groupTitle}>{group.label}</Text>{options.quickStyles.filter((item) => item.group === group.id).map((item) => <Pressable key={item.id} onPress={() => { onSelect(item.tone); setOpen(false); }} style={[styles.sheetRow, active?.id === item.id && styles.sheetRowActive]}><View style={styles.optionCopy}><Text style={styles.optionTitle}>{item.label}</Text><Text style={styles.optionMeta}>{item.description}</Text></View>{active?.id === item.id && !preferences.rephrase.quickStyles.includes(item.id) ? <Pressable onPress={() => void pin(item.id)} style={styles.pin}><Text style={styles.pinText}>Pin</Text></Pressable> : null}</Pressable>)}</View>)}</ScrollView></View>
@@ -122,6 +163,10 @@ export function PreferenceSettingsPanel({ token, preferences, options, onUpdate 
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const byId = Object.fromEntries(options.quickStyles.map((style) => [style.id, style]));
+
+  useEffect(() => {
+    setDraft(preferences);
+  }, [preferences]);
 
   function toggleStyle(id: QuickStyleId) {
     const current = draft.rephrase.quickStyles;
@@ -161,20 +206,41 @@ export function PreferenceSettingsPanel({ token, preferences, options, onUpdate 
     finally { setBusy(false); }
   }
 
+  const recipientSummary = draft.outcomeAssistant.favoriteRecipients
+    .map((id) => options.recipients.find((item) => item.id === id)?.label)
+    .filter(Boolean)
+    .join(", ");
+  const goalSummary = draft.outcomeAssistant.favoriteIntents
+    .map((id) => options.intents.find((item) => item.id === id)?.label)
+    .filter(Boolean)
+    .join(", ");
+  const channelSummary = draft.outcomeAssistant.defaultChannel === "auto"
+    ? "Auto"
+    : options.channels.find((item) => item.id === draft.outcomeAssistant.defaultChannel)?.label ?? "Auto";
+
   return <View style={styles.settingsPanel}>
-    <Text style={styles.sectionTitle}>Quick Styles · {draft.rephrase.quickStyles.length}/5</Text>
-    {draft.rephrase.quickStyles.map((id, index) => <View key={id} style={styles.reorderRow}><Text style={styles.reorderLabel}>{index + 1}. {byId[id].label}</Text><Pressable accessibilityLabel={`Move ${byId[id].label} up`} disabled={index === 0} onPress={() => moveStyle(index, -1)} style={[styles.moveButton, index === 0 && styles.disabled]}><Text>↑</Text></Pressable><Pressable accessibilityLabel={`Move ${byId[id].label} down`} disabled={index === draft.rephrase.quickStyles.length - 1} onPress={() => moveStyle(index, 1)} style={[styles.moveButton, index === draft.rephrase.quickStyles.length - 1 && styles.disabled]}><Text>↓</Text></Pressable></View>)}
-    <View style={styles.wrap}>{options.quickStyles.map((item) => <Pressable key={item.id} onPress={() => toggleStyle(item.id)} style={[styles.quickChip, draft.rephrase.quickStyles.includes(item.id) && styles.quickChipActive]}><Text style={[styles.quickChipText, draft.rephrase.quickStyles.includes(item.id) && styles.quickChipTextActive]}>{item.label}</Text></Pressable>)}</View>
-    <Text style={styles.sectionTitle}>Default style</Text>
-    <View style={styles.wrap}>{draft.rephrase.quickStyles.map((id) => <Pressable key={id} onPress={() => setDraft((value) => ({ ...value, rephrase: { ...value.rephrase, defaultStyle: id } }))} style={[styles.quickChip, draft.rephrase.defaultStyle === id && styles.quickChipActive]}><Text style={[styles.quickChipText, draft.rephrase.defaultStyle === id && styles.quickChipTextActive]}>{byId[id].label}</Text></Pressable>)}</View>
-    <Text style={styles.sectionTitle}>Favorite recipients · {draft.outcomeAssistant.favoriteRecipients.length}/4</Text>
-    <View style={styles.wrap}>{options.recipients.map((item) => <Pressable key={item.id} onPress={() => toggleRecipient(item.id)} style={[styles.quickChip, draft.outcomeAssistant.favoriteRecipients.includes(item.id) && styles.quickChipActive]}><Text style={[styles.quickChipText, draft.outcomeAssistant.favoriteRecipients.includes(item.id) && styles.quickChipTextActive]}>{item.label}</Text></Pressable>)}</View>
-    <Text style={styles.sectionTitle}>Favorite goals · {draft.outcomeAssistant.favoriteIntents.length}/6</Text>
-    <View style={styles.wrap}>{options.intents.map((item) => <Pressable key={item.id} onPress={() => toggleIntent(item.id)} style={[styles.quickChip, draft.outcomeAssistant.favoriteIntents.includes(item.id) && styles.quickChipActive]}><Text style={[styles.quickChipText, draft.outcomeAssistant.favoriteIntents.includes(item.id) && styles.quickChipTextActive]}>{item.label}</Text></Pressable>)}</View>
-    <Text style={styles.sectionTitle}>Default channel</Text>
-    <View style={styles.wrap}><Pressable onPress={() => setDraft((value) => ({ ...value, outcomeAssistant: { ...value.outcomeAssistant, defaultChannel: "auto" } }))} style={[styles.quickChip, draft.outcomeAssistant.defaultChannel === "auto" && styles.quickChipActive]}><Text style={[styles.quickChipText, draft.outcomeAssistant.defaultChannel === "auto" && styles.quickChipTextActive]}>Auto</Text></Pressable>{options.channels.map((item) => <Pressable key={item.id} onPress={() => setDraft((value) => ({ ...value, outcomeAssistant: { ...value.outcomeAssistant, defaultChannel: item.id } }))} style={[styles.quickChip, draft.outcomeAssistant.defaultChannel === item.id && styles.quickChipActive]}><Text style={[styles.quickChipText, draft.outcomeAssistant.defaultChannel === item.id && styles.quickChipTextActive]}>{item.label}</Text></Pressable>)}</View>
-    <Text style={styles.sectionTitle}>Default result</Text>
-    <View style={styles.wrap}>{(["safe", "balanced", "firm"] as const).map((id) => <Pressable key={id} onPress={() => setDraft((value) => ({ ...value, outcomeAssistant: { ...value.outcomeAssistant, defaultVariant: id } }))} style={[styles.quickChip, draft.outcomeAssistant.defaultVariant === id && styles.quickChipActive]}><Text style={[styles.quickChipText, draft.outcomeAssistant.defaultVariant === id && styles.quickChipTextActive]}>{id[0].toUpperCase() + id.slice(1)}</Text></Pressable>)}</View>
+    <PreferenceGroup
+      title={`Quick Styles · ${draft.rephrase.quickStyles.length}/5`}
+      summary={draft.rephrase.quickStyles.map((id) => byId[id].label).join(", ")}
+    >
+      {draft.rephrase.quickStyles.map((id, index) => <View key={id} style={styles.reorderRow}><Text style={styles.reorderLabel}>{index + 1}. {byId[id].label}</Text><Pressable accessibilityLabel={`Move ${byId[id].label} up`} disabled={index === 0} onPress={() => moveStyle(index, -1)} style={[styles.moveButton, index === 0 && styles.disabled]}><Text>↑</Text></Pressable><Pressable accessibilityLabel={`Move ${byId[id].label} down`} disabled={index === draft.rephrase.quickStyles.length - 1} onPress={() => moveStyle(index, 1)} style={[styles.moveButton, index === draft.rephrase.quickStyles.length - 1 && styles.disabled]}><Text>↓</Text></Pressable></View>)}
+      <View style={styles.wrap}>{options.quickStyles.map((item) => <Pressable key={item.id} onPress={() => toggleStyle(item.id)} style={[styles.quickChip, draft.rephrase.quickStyles.includes(item.id) && styles.quickChipActive]}><Text style={[styles.quickChipText, draft.rephrase.quickStyles.includes(item.id) && styles.quickChipTextActive]}>{item.label}</Text></Pressable>)}</View>
+    </PreferenceGroup>
+    <PreferenceGroup title="Default style" summary={byId[draft.rephrase.defaultStyle]?.label ?? "Professional"}>
+      <View style={styles.wrap}>{draft.rephrase.quickStyles.map((id) => <Pressable key={id} onPress={() => setDraft((value) => ({ ...value, rephrase: { ...value.rephrase, defaultStyle: id } }))} style={[styles.quickChip, draft.rephrase.defaultStyle === id && styles.quickChipActive]}><Text style={[styles.quickChipText, draft.rephrase.defaultStyle === id && styles.quickChipTextActive]}>{byId[id].label}</Text></Pressable>)}</View>
+    </PreferenceGroup>
+    <PreferenceGroup title={`Favorite recipients · ${draft.outcomeAssistant.favoriteRecipients.length}/4`} summary={recipientSummary || "None selected"}>
+      <View style={styles.wrap}>{options.recipients.map((item) => <Pressable key={item.id} onPress={() => toggleRecipient(item.id)} style={[styles.quickChip, draft.outcomeAssistant.favoriteRecipients.includes(item.id) && styles.quickChipActive]}><Text style={[styles.quickChipText, draft.outcomeAssistant.favoriteRecipients.includes(item.id) && styles.quickChipTextActive]}>{item.label}</Text></Pressable>)}</View>
+    </PreferenceGroup>
+    <PreferenceGroup title={`Favorite goals · ${draft.outcomeAssistant.favoriteIntents.length}/6`} summary={goalSummary || "None selected"}>
+      <View style={styles.wrap}>{options.intents.map((item) => <Pressable key={item.id} onPress={() => toggleIntent(item.id)} style={[styles.quickChip, draft.outcomeAssistant.favoriteIntents.includes(item.id) && styles.quickChipActive]}><Text style={[styles.quickChipText, draft.outcomeAssistant.favoriteIntents.includes(item.id) && styles.quickChipTextActive]}>{item.label}</Text></Pressable>)}</View>
+    </PreferenceGroup>
+    <PreferenceGroup title="Default channel" summary={channelSummary}>
+      <View style={styles.wrap}><Pressable onPress={() => setDraft((value) => ({ ...value, outcomeAssistant: { ...value.outcomeAssistant, defaultChannel: "auto" } }))} style={[styles.quickChip, draft.outcomeAssistant.defaultChannel === "auto" && styles.quickChipActive]}><Text style={[styles.quickChipText, draft.outcomeAssistant.defaultChannel === "auto" && styles.quickChipTextActive]}>Auto</Text></Pressable>{options.channels.map((item) => <Pressable key={item.id} onPress={() => setDraft((value) => ({ ...value, outcomeAssistant: { ...value.outcomeAssistant, defaultChannel: item.id } }))} style={[styles.quickChip, draft.outcomeAssistant.defaultChannel === item.id && styles.quickChipActive]}><Text style={[styles.quickChipText, draft.outcomeAssistant.defaultChannel === item.id && styles.quickChipTextActive]}>{item.label}</Text></Pressable>)}</View>
+    </PreferenceGroup>
+    <PreferenceGroup title="Default result" summary={draft.outcomeAssistant.defaultVariant[0].toUpperCase() + draft.outcomeAssistant.defaultVariant.slice(1)}>
+      <View style={styles.wrap}>{(["safe", "balanced", "firm"] as const).map((id) => <Pressable key={id} onPress={() => setDraft((value) => ({ ...value, outcomeAssistant: { ...value.outcomeAssistant, defaultVariant: id } }))} style={[styles.quickChip, draft.outcomeAssistant.defaultVariant === id && styles.quickChipActive]}><Text style={[styles.quickChipText, draft.outcomeAssistant.defaultVariant === id && styles.quickChipTextActive]}>{id[0].toUpperCase() + id.slice(1)}</Text></Pressable>)}</View>
+    </PreferenceGroup>
     <Pressable disabled={busy} onPress={() => void save()} style={styles.primary}><Text style={styles.primaryText}>{busy ? "Saving..." : "Save preferences"}</Text></Pressable>
     {status ? <Text accessibilityLiveRegion="polite" style={status.includes("saved") ? styles.success : styles.error}>{status}</Text> : null}
   </View>;
@@ -277,6 +343,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
     marginTop: 14,
+  },
+  inlineError: {
+    color: colors.danger,
+    fontSize: 12,
+    lineHeight: 18,
+    paddingHorizontal: spacing.screen,
+    paddingBottom: 6,
   },
   success: {
     color: colors.success,
@@ -433,15 +506,49 @@ const styles = StyleSheet.create({
     minHeight: 48,
   },
   settingsPanel: {
-    marginTop: 26,
+    gap: 10,
   },
-  sectionTitle: {
+  preferenceGroup: {
+    backgroundColor: colors.surfaceLow,
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  preferenceGroupHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 12,
+    minHeight: 64,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  preferenceGroupCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  preferenceGroupTitle: {
     color: colors.text,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "800",
-    lineHeight: 22,
-    marginBottom: 12,
-    marginTop: 18,
+  },
+  preferenceGroupSummary: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 4,
+  },
+  preferenceGroupChevron: {
+    color: colors.text,
+    fontSize: 24,
+    fontWeight: "500",
+    textAlign: "center",
+    width: 28,
+  },
+  preferenceGroupBody: {
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+    padding: 12,
   },
   wrap: {
     flexDirection: "row",

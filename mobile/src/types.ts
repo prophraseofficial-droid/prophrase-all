@@ -70,6 +70,12 @@ export type OutcomeAssistantResponse = {
   }>;
 };
 
+export type WorkspaceProfile = {
+  plan: "free" | "plus" | "pro" | "pro_monthly" | "pro_yearly";
+  subscriptionStatus: string;
+  currentPeriodEnd: string | null;
+};
+
 export type UsageSummary = {
   plan: "free" | "plus" | "pro" | "pro_monthly" | "pro_yearly";
   isPro: boolean;
@@ -129,6 +135,7 @@ export type AppSession = {
   accessToken: string;
   email: string;
   name: string;
+  userId: string;
 };
 
 export type ViewName =

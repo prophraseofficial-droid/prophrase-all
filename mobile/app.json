@@ -2,9 +2,9 @@
   "expo": {
     "name": "ProPhrase",
     "slug": "prophrase",
-    "version": "0.1.0",
+    "version": "1.0.4",
     "orientation": "portrait",
-    "icon": "../public/prophrase-app-icon-1024.png",
+    "icon": "./assets/prophrase-app-icon-padded.png",
     "scheme": "prophrase",
     "userInterfaceStyle": "light",
     "assetBundlePatterns": [
@@ -12,19 +12,50 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.prophrase.app"
+      "bundleIdentifier": "com.prophrase.app",
+      "buildNumber": "5",
+      "usesAppleSignIn": true,
+      "config": {
+        "usesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.prophrase.app",
+      "versionCode": 5,
       "softwareKeyboardLayoutMode": "resize",
+      "predictiveBackGestureEnabled": true,
+      "backgroundColor": "#FAF9F6",
+      "blockedPermissions": [
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.CAMERA",
+        "android.permission.READ_CONTACTS",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ],
       "adaptiveIcon": {
-        "foregroundImage": "../public/prophrase-app-icon-512.png",
+        "foregroundImage": "./assets/prophrase-adaptive-foreground.png",
         "backgroundColor": "#FAF9F6"
       }
     },
+    "androidStatusBar": {
+      "barStyle": "dark-content",
+      "backgroundColor": "#FAF9F6",
+      "translucent": true
+    },
+    "androidNavigationBar": {
+      "barStyle": "dark-content",
+      "backgroundColor": "#FAF9F6"
+    },
     "plugins": [
+      "expo-apple-authentication",
       "expo-secure-store",
       "expo-web-browser"
-    ]
+    ],
+    "extra": {
+      "supportEmail": "prophraseofficial@gmail.com"
+    }
   }
 }

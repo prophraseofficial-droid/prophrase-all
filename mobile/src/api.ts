@@ -12,8 +12,10 @@ import type {
   OutcomeAssistantResponse,
   UniversalClipboardMetadata,
   UsageSummary,
+  WorkspaceProfile,
 } from "./types";
 import { appConfig } from "./config";
+import { Platform } from "react-native";
 
 const apiBaseUrl = appConfig.apiBaseUrl;
 
@@ -27,6 +29,19 @@ type ApiError = {
   };
 };
 
+export type MobileBillingInterval = "monthly" | "annual";
+
+export type MobileBillingPlan = {
+  id: "free" | "plus" | "pro";
+  publicName: string;
+  description: string;
+  monthlyPricePaise: number | null;
+  annualPricePaise: number | null;
+  dailyCredits: number | null;
+  monthlyCredits: number | null;
+  maxInputCharacters: number;
+};
+
 async function requestJson<T>({
   path,
   token,
@@ -35,21 +50,36 @@ async function requestJson<T>({
   idempotencyKey,
 }: {
   path: string;
-  token: string;
+  token?: string;
   method?: "GET" | "POST" | "PATCH" | "DELETE";
   body?: Record<string, unknown>;
   idempotencyKey?: string;
 }) {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const data = (await response.json().catch(() => null)) as T & ApiError;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
+  let response: Response;
+
+  try {
+    response = await fetch(`${apiBaseUrl}${path}`, {
+      method,
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        "Content-Type": "application/json",
+        ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+  } catch (caught) {
+    const message = caught instanceof Error && caught.name === "AbortError"
+      ? "The request took too long. Check your connection and try again."
+      : "Unable to reach ProPhrase. Check your connection and try again.";
+    throw new Error(message);
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const data = (await response.json().catch(() => null)) as (T & ApiError) | null;
 
   if (!response.ok) {
     const error = new Error(data?.message || data?.error || "Request failed.");
@@ -57,16 +87,13 @@ async function requestJson<T>({
     throw error;
   }
 
+  if (!data) throw new Error("ProPhrase returned an empty response. Please try again.");
   return data;
 }
 
 export async function loadWorkspace(token: string) {
   const data = await requestJson<{
-    profile: {
-      plan: "free" | "plus" | "pro" | "pro_monthly" | "pro_yearly";
-      subscriptionStatus: string;
-      currentPeriodEnd: string | null;
-    };
+    profile: WorkspaceProfile;
     usage: UsageSummary;
     creditBilling?: {
       enabled: boolean;
@@ -91,6 +118,66 @@ export async function loadWorkspace(token: string) {
     },
     planFeatureGatingEnabled: Boolean(data.creditBilling?.planFeatureGatingEnabled),
   };
+}
+
+export async function loadBillingPlans() {
+  return requestJson<{
+    currency: string;
+    plans: MobileBillingPlan[];
+    checkoutEnabled: boolean;
+    taxNote: string;
+  }>({ path: "/api/billing/plans" });
+}
+
+export async function createBillingCheckout({
+  token,
+  plan,
+  interval,
+  idempotencyKey,
+}: {
+  token: string;
+  plan: "plus" | "pro";
+  interval: MobileBillingInterval;
+  idempotencyKey: string;
+}) {
+  return requestJson<{
+    subscriptionId: string;
+    razorpayKeyId: string;
+    amount: number;
+    currency: string;
+    plan: "plus" | "pro";
+    interval: MobileBillingInterval;
+    user?: { name?: string; email?: string };
+  }>({
+    path: "/api/billing/checkout",
+    token,
+    method: "POST",
+    body: { plan, interval, idempotencyKey, returnTo: "/account/billing" },
+  });
+}
+
+export async function verifyBillingPayment({
+  token,
+  payment,
+}: {
+  token: string;
+  payment: {
+    razorpay_payment_id: string;
+    razorpay_subscription_id: string;
+    razorpay_signature: string;
+  };
+}) {
+  return requestJson<{
+    ok: boolean;
+    processing?: boolean;
+    plan?: "plus" | "pro";
+    interval?: MobileBillingInterval;
+  }>({
+    path: "/api/billing/verify-payment",
+    token,
+    method: "POST",
+    body: payment,
+  });
 }
 
 export async function updatePreferences({
@@ -203,10 +290,43 @@ export async function createUniversalCopy({
       deviceLabel,
       text,
       expiresInSeconds: 300,
+      platform: Platform.OS === "ios" ? "ios" : "android",
     },
   });
 }
 
-export function pricingUrl() {
-  return `${apiBaseUrl}/pricing`;
+export async function loadUniversalCopy({
+  token,
+  deviceId,
+}: {
+  token: string;
+  deviceId: string;
+}) {
+  return requestJson<{ item: UniversalClipboardMetadata | null; serverTime: string }>({
+    path: `/api/universal-clipboard?deviceId=${encodeURIComponent(deviceId)}`,
+    token,
+  });
+}
+
+export async function claimUniversalCopy({
+  token,
+  deviceId,
+  deviceLabel,
+  clipId,
+}: {
+  token: string;
+  deviceId: string;
+  deviceLabel: string;
+  clipId: string;
+}) {
+  return requestJson<{ item: UniversalClipboardMetadata; text: string }>({
+    path: `/api/universal-clipboard/${encodeURIComponent(clipId)}/claim`,
+    token,
+    method: "POST",
+    body: {
+      deviceId,
+      deviceLabel,
+      platform: Platform.OS === "ios" ? "ios" : "android",
+    },
+  });
 }

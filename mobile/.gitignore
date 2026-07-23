@@ -1,0 +1,14 @@
+.env
+.env.*
+.expo/
+dist/
+dist-release-check/
+android/
+ios/
+*.jks
+*.keystore
+*.apk
+*.aab
+credentials.json
+google-play-service-account.json
+AuthKey_*.p8

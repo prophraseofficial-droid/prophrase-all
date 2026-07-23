@@ -80,6 +80,27 @@ test("natural contractions preserve negation while correcting grammar", () => {
   );
 });
 
+test("smart-apostrophe contractions and no-problem phrasing preserve meaning", () => {
+  const smartApostropheFailures = validateSemanticInvariants({
+    originalText: "This is not resolved.",
+    outputText: "This isn’t resolved.",
+  });
+  assert.equal(
+    smartApostropheFailures.some((failure) => failure.code === "negation_removed"),
+    false,
+  );
+
+  const noProblemFailures = validateSemanticInvariants({
+    originalText: "They will be getting to know now, so no probelm.",
+    outputText: "They’ll find out now, so it should be fine.",
+    mode: "Professional",
+  });
+  assert.equal(
+    noProblemFailures.some((failure) => failure.code === "negation_removed"),
+    false,
+  );
+});
+
 test("sentence starters and punctuation changes do not become protected facts", () => {
   const originalText = "Hey,\n\nMy name is Zeno — I'm the founder and CEO of Resend.";
   const metadata = preprocessMessage(originalText);

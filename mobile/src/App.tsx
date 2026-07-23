@@ -1,15 +1,19 @@
 import { StatusBar } from "expo-status-bar";
-import { makeRedirectUri } from "expo-auth-session";
+import Constants from "expo-constants";
+import * as AppleAuthentication from "expo-apple-authentication";
 import * as Google from "expo-auth-session/providers/google";
 import * as Clipboard from "expo-clipboard";
+import * as Crypto from "expo-crypto";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import type { Session } from "@supabase/supabase-js";
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  AppState,
+  FlatList,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -27,24 +31,33 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 import {
+  claimUniversalCopy,
   createUniversalCopy,
+  loadUniversalCopy,
   loadThread,
   loadWorkspace,
-  pricingUrl,
   rewriteMessage,
 } from "./api";
 import { OutcomeScreen } from "./OutcomeScreen";
+import { BillingModal } from "./BillingModal";
 import {
   PreferenceSettingsPanel,
   QuickStylesOnboardingScreen,
   QuickStylesPicker,
 } from "./preferences-ui";
 import { appConfig } from "./config";
+import { parseAuthCallback } from "./auth-callback";
 import { getDeviceLabel, getOrCreateDeviceId } from "./device";
+import {
+  classifyRewriteError,
+  planLimitNotice,
+  type RewriteNotice,
+} from "./rewrite-error";
 import { supabase } from "./supabase";
 import { colors, shadow, spacing } from "./theme";
 import type {
   AppSession,
+  UniversalClipboardMetadata,
   RewriteTemplate,
   ThreadMessage,
   ThreadSummary,
@@ -53,6 +66,7 @@ import type {
   UserPreferences,
   UsageSummary,
   ViewName,
+  WorkspaceProfile,
 } from "./types";
 
 WebBrowser.maybeCompleteAuthSession();
@@ -83,16 +97,24 @@ const bugTemplate: RewriteTemplate = {
 };
 
 function getAuthRedirectUrl() {
-  if (appConfig.authRedirectUrl) return appConfig.authRedirectUrl;
-
-  return makeRedirectUri({
-    scheme: "prophrase",
-    path: "auth/callback",
-  });
+  if (Constants.appOwnership === "expo") {
+    return Linking.createURL("auth/callback");
+  }
+  return appConfig.authRedirectUrl;
 }
 
 function initialFromName(name: string) {
   return name.trim().charAt(0).toUpperCase() || "P";
+}
+
+async function openExternalUrl(url: string) {
+  try {
+    const supported = await Linking.canOpenURL(url);
+    if (!supported) throw new Error("Unsupported URL");
+    await Linking.openURL(url);
+  } catch {
+    Alert.alert("Unable to open link", "Please try again from prophrase.in.");
+  }
 }
 
 function formatPlan(plan?: UsageSummary["plan"]) {
@@ -183,6 +205,31 @@ function GoogleButton({
   );
 }
 
+function AppleButton({
+  disabled,
+  loading,
+  onPress,
+}: {
+  disabled: boolean;
+  loading: boolean;
+  onPress: () => void;
+}) {
+  if (Platform.OS !== "ios") return null;
+
+  return (
+    <View pointerEvents={disabled ? "none" : "auto"} style={disabled ? styles.disabled : null}>
+      <AppleAuthentication.AppleAuthenticationButton
+        accessibilityLabel={loading ? "Connecting to Apple" : "Continue with Apple"}
+        buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+        buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+        cornerRadius={14}
+        onPress={onPress}
+        style={styles.appleButton}
+      />
+    </View>
+  );
+}
+
 function AppLogo({ size = 44 }: { size?: number }) {
   return (
     <Image
@@ -208,6 +255,7 @@ function Shell({
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
+        <AppLogo size={38} />
         <View style={styles.headerTitleWrap}>
           <Text style={styles.headerTitle}>{title}</Text>
           {subtitle ? <Text style={styles.headerSubtitle}>{subtitle}</Text> : null}
@@ -219,6 +267,64 @@ function Shell({
   );
 }
 
+function PlanHeaderActions({
+  paid,
+  onOpenPlans,
+  onOpenAccount,
+  initial,
+}: {
+  paid: boolean;
+  onOpenPlans: () => void;
+  onOpenAccount: () => void;
+  initial: string;
+}) {
+  return (
+    <View style={styles.headerActions}>
+      <Pressable
+        accessibilityLabel={paid ? "Open plan and billing" : "Upgrade plan"}
+        accessibilityRole="button"
+        onPress={onOpenPlans}
+        style={({ pressed }) => [styles.upgradePill, pressed ? styles.pressed : null]}
+      >
+        <Text numberOfLines={1} style={styles.upgradePillText}>{paid ? "Plan" : "Upgrade"}</Text>
+      </Pressable>
+      <Pressable accessibilityLabel="Open account" accessibilityRole="button" style={styles.avatar} onPress={onOpenAccount}>
+        <Text style={styles.avatarText}>{initial}</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function ExpandableCard({
+  title,
+  summary,
+  children,
+}: {
+  title: string;
+  summary: string;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <View style={styles.expandableCard}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        onPress={() => setOpen((value) => !value)}
+        style={styles.expandableHeader}
+      >
+        <View style={styles.expandableTitleWrap}>
+          <Text style={styles.expandableTitle}>{title}</Text>
+          <Text numberOfLines={2} style={styles.expandableSummary}>{summary}</Text>
+        </View>
+        <Text style={styles.expandableChevron}>{open ? "−" : "+"}</Text>
+      </Pressable>
+      {open ? <View style={styles.expandableBody}>{children}</View> : null}
+    </View>
+  );
+}
+
 function SplashScreen() {
   return (
     <SafeAreaView style={[styles.safe, styles.centerScreen]}>
@@ -227,6 +333,30 @@ function SplashScreen() {
       </View>
       <Text style={styles.splashTitle}>ProPhrase</Text>
       <Text style={styles.splashSubtitle}>Say it better at work.</Text>
+    </SafeAreaView>
+  );
+}
+
+function WorkspaceErrorScreen({
+  message,
+  busy,
+  onRetry,
+  onSignOut,
+}: {
+  message: string;
+  busy: boolean;
+  onRetry: () => void;
+  onSignOut: () => void;
+}) {
+  return (
+    <SafeAreaView style={[styles.safe, styles.centerScreen]}>
+      <View style={styles.errorStateCard}>
+        <Text style={styles.alertIcon}>!</Text>
+        <Text style={styles.alertTitle}>Workspace unavailable</Text>
+        <Text style={styles.alertCopy}>{message}</Text>
+        <Button disabled={busy} title={busy ? "Connecting..." : "Try again"} onPress={onRetry} />
+        <Button disabled={busy} title="Sign out" variant="secondary" onPress={onSignOut} />
+      </View>
     </SafeAreaView>
   );
 }
@@ -325,14 +455,22 @@ function OnboardingToneChoice({
 function OnboardingGetStarted({
   email,
   setEmail,
+  password,
+  setPassword,
   authLoading,
+  onApple,
   onGoogle,
+  onPassword,
   onStart,
 }: {
   email: string;
   setEmail: (email: string) => void;
-  authLoading: "google" | "magic" | null;
+  password: string;
+  setPassword: (password: string) => void;
+  authLoading: "apple" | "google" | "magic" | "password" | null;
+  onApple: () => void;
   onGoogle: () => void;
+  onPassword: () => void;
   onStart: () => void;
 }) {
   return (
@@ -353,6 +491,11 @@ function OnboardingGetStarted({
             Sign in once to use rewriting, Outcome Assistant, Universal Copy,
             history, templates, preferences, and usage across your devices.
           </Text>
+          <AppleButton
+            disabled={authLoading !== null}
+            loading={authLoading === "apple"}
+            onPress={onApple}
+          />
           <GoogleButton
             disabled={authLoading !== null}
             loading={authLoading === "google"}
@@ -373,163 +516,65 @@ function OnboardingGetStarted({
             style={styles.input}
             value={email}
           />
+          <TextInput
+            autoCapitalize="none"
+            autoComplete="password"
+            onChangeText={setPassword}
+            placeholder="Password for an existing account"
+            placeholderTextColor={colors.muted}
+            secureTextEntry
+            style={styles.input}
+            value={password}
+          />
+          <Button
+            disabled={authLoading !== null || !email.trim() || password.length < 6}
+            title={authLoading === "password" ? "Signing in..." : "Sign in with email and password"}
+            onPress={onPassword}
+          />
           <Button
             disabled={authLoading !== null || !email.trim()}
             title={authLoading === "magic" ? "Sending magic link..." : "Send magic link"}
             onPress={onStart}
+            variant="secondary"
           />
           <Text style={styles.finePrint}>
             Mobile uses Supabase secure sessions. Your API keys stay on the server.
           </Text>
+          <View style={styles.legalRow}>
+            <Pressable accessibilityRole="link" onPress={() => void openExternalUrl(appConfig.privacyPolicyUrl)}>
+              <Text style={styles.legalLink}>Privacy</Text>
+            </Pressable>
+            <Text style={styles.legalDot}>•</Text>
+            <Pressable accessibilityRole="link" onPress={() => void openExternalUrl(appConfig.termsUrl)}>
+              <Text style={styles.legalLink}>Terms</Text>
+            </Pressable>
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
-function ToneSelectionSheet({
-  visible,
-  tone,
-  onSelect,
+function RewriteNoticeModal({
+  notice,
   onClose,
 }: {
-  visible: boolean;
-  tone: Tone;
-  onSelect: (tone: Tone) => void;
+  notice: RewriteNotice | null;
   onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
+  if (!notice) return null;
 
   return (
-    <Modal
-      animationType="slide"
-      onRequestClose={onClose}
-      transparent
-      visible={visible}
-    >
-      <Pressable style={styles.sheetBackdrop} onPress={onClose} />
-      <View
-        style={[
-          styles.sheet,
-          { paddingBottom: Math.max(insets.bottom, spacing.screen) },
-        ]}
-      >
-        <View style={styles.sheetHandle} />
-        <Text style={styles.sheetTitle}>Tone</Text>
-        <ScrollView
-          contentContainerStyle={styles.sheetList}
-          showsVerticalScrollIndicator={false}
-        >
-          {tones.map((item) => (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ selected: item === tone }}
-              key={item}
-              onPress={() => {
-                onSelect(item);
-                onClose();
-              }}
-              style={[styles.sheetRow, item === tone ? styles.sheetRowActive : null]}
-            >
-              <Text style={styles.sheetRowTitle}>{item}</Text>
-              <Text style={styles.sheetRowMeta}>
-                {item === "Professional"
-                  ? "Clear and polished"
-                  : item === "Short & Crisp"
-                    ? "Concise and direct"
-                    : item === "Human"
-                      ? "Warm and natural"
-                      : item === "Email"
-                        ? "Ready for inboxes"
-                        : "Ticket-friendly"}
-              </Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-      </View>
-    </Modal>
-  );
-}
-
-function LimitReachedModal({
-  visible,
-  message,
-  onUpgrade,
-  onClose,
-}: {
-  visible: boolean;
-  message: string;
-  onUpgrade: () => void;
-  onClose: () => void;
-}) {
-  const insets = useSafeAreaInsets();
-
-  return (
-    <Modal animationType="fade" onRequestClose={onClose} transparent visible={visible}>
+    <Modal animationType="fade" onRequestClose={onClose} transparent visible>
       <View style={[styles.modalCenter, { paddingBottom: Math.max(insets.bottom, spacing.screen) }]}>
         <View style={styles.alertCard}>
           <Text style={styles.alertIcon}>!</Text>
-          <Text style={styles.alertTitle}>Limit reached</Text>
-          <Text style={styles.alertCopy}>{message}</Text>
-          <Button title="Upgrade" onPress={onUpgrade} />
-          <Button title="Maybe later" variant="ghost" onPress={onClose} />
+          <Text style={styles.alertTitle}>{notice.title}</Text>
+          <Text style={styles.alertCopy}>{notice.message}</Text>
+          <Text style={styles.alertHint}>{notice.hint}</Text>
+          <Button title="Got it" onPress={onClose} />
         </View>
-      </View>
-    </Modal>
-  );
-}
-
-function UpgradeFlow({
-  visible,
-  busy,
-  onSelect,
-  onClose,
-}: {
-  visible: boolean;
-  busy: boolean;
-  onSelect: (plan: "plus" | "pro", interval: "monthly" | "annual") => void;
-  onClose: () => void;
-}) {
-  const [interval, setInterval] = useState<"monthly" | "annual">("monthly");
-  const insets = useSafeAreaInsets();
-
-  return (
-    <Modal animationType="slide" onRequestClose={onClose} transparent visible={visible}>
-      <Pressable style={styles.sheetBackdrop} onPress={onClose} />
-      <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, spacing.screen) }]}>
-        <View style={styles.sheetHandle} />
-        <ScrollView
-          contentContainerStyle={styles.sheetList}
-          showsVerticalScrollIndicator={false}
-        >
-          <Text style={styles.sheetTitle}>Choose a plan</Text>
-          <Text style={styles.sheetCopy}>
-            Longer messages use more credits. Unused credits do not roll over.
-          </Text>
-          <View style={styles.toneRow}>
-            <Pressable onPress={() => setInterval("monthly")} style={[styles.chip, interval === "monthly" && styles.chipActive]}><Text style={[styles.chipText, interval === "monthly" && styles.chipTextActive]}>Monthly</Text></Pressable>
-            <Pressable onPress={() => setInterval("annual")} style={[styles.chip, interval === "annual" && styles.chipActive]}><Text style={[styles.chipText, interval === "annual" && styles.chipTextActive]}>Annual</Text></Pressable>
-          </View>
-          <Pressable
-            disabled={busy}
-            onPress={() => onSelect("plus", interval)}
-            style={styles.planCard}
-          >
-            <Text style={styles.planName}>Plus</Text>
-            <Text adjustsFontSizeToFit minimumFontScale={0.8} numberOfLines={1} style={styles.planPrice}>{interval === "monthly" ? "₹99/month" : "₹899/year"}</Text>
-            <Text style={styles.planMeta}>300 credits refreshed monthly.</Text>
-          </Pressable>
-          <Pressable
-            disabled={busy}
-            onPress={() => onSelect("pro", interval)}
-            style={[styles.planCard, styles.planCardFeatured]}
-          >
-            <Text style={styles.planName}>Pro</Text>
-            <Text adjustsFontSizeToFit minimumFontScale={0.8} numberOfLines={1} style={styles.planPrice}>{interval === "monthly" ? "₹249/month" : "₹1,999/year"}</Text>
-            <Text style={styles.planMeta}>1,500 credits refreshed monthly.</Text>
-          </Pressable>
-          {busy ? <ActivityIndicator color={colors.primary} /> : null}
-        </ScrollView>
       </View>
     </Modal>
   );
@@ -546,7 +591,9 @@ function HomeWrite({
   setView,
   deviceId,
   deviceLabel,
-  onOpenUpgrade,
+  onPlanLimit,
+  onRewriteError,
+  onOpenPlans,
   templateDraft,
   onTemplateDraftUsed,
   planFeatureGatingEnabled,
@@ -564,7 +611,9 @@ function HomeWrite({
   setView: (view: ViewName) => void;
   deviceId: string;
   deviceLabel: string;
-  onOpenUpgrade: (message?: string) => void;
+  onPlanLimit: (message?: string) => void;
+  onRewriteError: (error: unknown) => void;
+  onOpenPlans: () => void;
   templateDraft: RewriteTemplate | null;
   onTemplateDraftUsed: () => void;
   planFeatureGatingEnabled: boolean;
@@ -578,6 +627,8 @@ function HomeWrite({
   const [threadId, setThreadId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("");
+  const [universalItem, setUniversalItem] = useState<UniversalClipboardMetadata | null>(null);
+  const [universalBusy, setUniversalBusy] = useState(false);
 
   useEffect(() => {
     if (!templateDraft) return;
@@ -588,6 +639,30 @@ function HomeWrite({
     setThreadId(null);
     onTemplateDraftUsed();
   }, [onTemplateDraftUsed, setSelectedTone, templateDraft]);
+
+  useEffect(() => {
+    if (!deviceId) return;
+    let active = true;
+
+    async function refreshUniversalItem() {
+      try {
+        const data = await loadUniversalCopy({
+          token: session.accessToken,
+          deviceId,
+        });
+        if (active) setUniversalItem(data.item);
+      } catch {
+        // Polling is best-effort and should never interrupt rewriting.
+      }
+    }
+
+    void refreshUniversalItem();
+    const timer = setInterval(() => void refreshUniversalItem(), 20_000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [deviceId, session.accessToken]);
 
   async function handleRewrite() {
     const trimmed = text.trim();
@@ -605,15 +680,15 @@ function HomeWrite({
       !["plus", "pro", "pro_monthly", "pro_yearly"].includes(usage?.creditBalance?.plan ?? usage?.plan ?? "free") &&
       !["Professional", "Polite", "Shorter"].includes(selectedTone)
     ) {
-      onOpenUpgrade(`${selectedTone} is available on Plus and Pro.`);
+      onPlanLimit(`${selectedTone} is available on Plus and Pro.`);
       return;
     }
     if (usage?.creditBalance && usage.creditBalance.available <= 0) {
-      onOpenUpgrade("You have no credits remaining for this credit period.");
+      onPlanLimit("You have no credits remaining for this credit period.");
       return;
     }
     if (usage && !usage.creditBalance && !usage.isPro && usage.rewriteRemaining <= 0) {
-      onOpenUpgrade("You have used your free rewrites for today.");
+      onPlanLimit("You have used your free rewrites for today.");
       return;
     }
 
@@ -639,8 +714,7 @@ function HomeWrite({
       setText("");
       setStatus("");
     } catch (error) {
-      const payload = (error as Error & { payload?: { message?: string } }).payload;
-      onOpenUpgrade(payload?.message || "Unable to rewrite message right now.");
+      onRewriteError(error);
       setStatus("");
     } finally {
       setLoading(false);
@@ -657,12 +731,13 @@ function HomeWrite({
     if (!result) return;
     setLoading(true);
     try {
-      await createUniversalCopy({
+      const data = await createUniversalCopy({
         token: session.accessToken,
         deviceId,
         deviceLabel,
         text: result,
       });
+      setUniversalItem(data.item);
       await Clipboard.setStringAsync(result);
       setStatus("Universal copy ready for one trusted device.");
     } catch {
@@ -672,14 +747,53 @@ function HomeWrite({
     }
   }
 
+  async function universalPaste() {
+    if (!universalItem || universalBusy) return;
+    setUniversalBusy(true);
+    setStatus("");
+    try {
+      const data = await claimUniversalCopy({
+        token: session.accessToken,
+        deviceId,
+        deviceLabel,
+        clipId: universalItem.id,
+      });
+      await Clipboard.setStringAsync(data.text);
+      setText(data.text);
+      setUniversalItem(data.item);
+      setStatus("Universal copy pasted into the composer and copied locally.");
+    } catch (caught) {
+      setStatus(caught instanceof Error ? caught.message : "Universal copy could not be claimed.");
+      try {
+        const latest = await loadUniversalCopy({ token: session.accessToken, deviceId });
+        setUniversalItem(latest.item);
+      } catch {
+        // Keep the original failure message.
+      }
+    } finally {
+      setUniversalBusy(false);
+    }
+  }
+
+  const universalAvailable = Boolean(
+    universalItem &&
+    universalItem.status === "available" &&
+    !universalItem.isExpired &&
+    new Date(universalItem.expiresAt).getTime() > Date.now(),
+  );
+  const canClaimUniversal = universalAvailable && universalItem?.sourceDeviceId !== deviceId;
+
   return (
     <Shell
       title="Write"
       subtitle={usage?.creditBalance ? `${usage.creditBalance.available} credits left` : usage?.isPro ? "Paid workspace" : `${usage?.rewriteRemaining ?? 0} rewrites left`}
       right={
-        <Pressable style={styles.avatar} onPress={() => setView("settings")}>
-          <Text style={styles.avatarText}>{initialFromName(session.name)}</Text>
-        </Pressable>
+        <PlanHeaderActions
+          initial={initialFromName(session.name)}
+          onOpenAccount={() => setView("settings")}
+          onOpenPlans={onOpenPlans}
+          paid={(usage?.creditBalance?.plan ?? usage?.plan ?? "free") !== "free"}
+        />
       }
     >
       <KeyboardAvoidingView
@@ -698,6 +812,32 @@ function HomeWrite({
             selectedTone={selectedTone}
             token={session.accessToken}
           />
+
+          {universalAvailable ? (
+            <View style={styles.universalCard}>
+              <View style={styles.universalCopyWrap}>
+                <Text style={styles.universalEyebrow}>UNIVERSAL COPY</Text>
+                <Text numberOfLines={2} style={styles.universalPreview}>
+                  {universalItem?.preview}
+                </Text>
+                <Text style={styles.universalMeta}>
+                  {canClaimUniversal
+                    ? `Ready from ${universalItem?.sourceDeviceLabel}`
+                    : "Ready for one of your other trusted devices"}
+                </Text>
+              </View>
+              {canClaimUniversal ? (
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={universalBusy}
+                  onPress={() => void universalPaste()}
+                  style={[styles.universalPasteButton, universalBusy && styles.disabled]}
+                >
+                  <Text style={styles.universalPasteText}>{universalBusy ? "Pasting..." : "Paste"}</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
 
           <View style={styles.writeCard}>
             <Text style={styles.label}>ROUGH MESSAGE</Text>
@@ -769,10 +909,14 @@ function HistoryScreen({
   const [messages, setMessages] = useState<ThreadMessage[]>([]);
   const [activeTitle, setActiveTitle] = useState("Recent rewrites");
   const [loading, setLoading] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const insets = useSafeAreaInsets();
 
   async function openThread(thread: ThreadSummary) {
     setLoading(true);
+    setMessages([]);
     setActiveTitle(thread.title || "Rewrite");
+    setDetailOpen(true);
     try {
       const data = await loadThread(token, thread.id);
       setMessages(data.messages);
@@ -785,38 +929,60 @@ function HistoryScreen({
 
   return (
     <Shell title="History" subtitle="Recent rewrites">
-      <ScrollView contentContainerStyle={styles.content}>
-        {threads.map((thread) => (
+      <FlatList
+        contentContainerStyle={styles.content}
+        data={threads}
+        keyExtractor={(thread) => thread.id}
+        renderItem={({ item: thread }) => (
           <Pressable
-            key={thread.id}
             onPress={() => openThread(thread)}
             style={styles.historyRow}
           >
             <Text style={styles.historyTitle}>{thread.title || "Untitled rewrite"}</Text>
-            <Text style={styles.historyMeta}>{thread.tone || "Rewrite"}</Text>
+            <Text style={styles.historyMeta}>
+              {[thread.tone || "Rewrite", thread.updated_at ? new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" }).format(new Date(thread.updated_at)) : null].filter(Boolean).join(" · ")}
+            </Text>
           </Pressable>
-        ))}
-        {!threads.length ? (
+        )}
+        ListEmptyComponent={(
           <View style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>No rewrites yet</Text>
             <Text style={styles.emptyCopy}>Your completed rewrites will appear here.</Text>
           </View>
-        ) : null}
-        {messages.length || loading ? (
-          <View style={styles.detailCard}>
-            <Text style={styles.sectionTitle}>{activeTitle}</Text>
-            {loading ? <ActivityIndicator color={colors.primary} /> : null}
-            {messages.map((message) => (
-              <View
-                key={message.id}
-                style={message.role === "user" ? styles.userBubble : styles.aiBubble}
-              >
-                <Text style={styles.bubbleText}>{message.content}</Text>
-              </View>
-            ))}
+        )}
+        showsVerticalScrollIndicator={false}
+        style={styles.flex}
+      />
+      <Modal animationType="slide" onRequestClose={() => setDetailOpen(false)} transparent visible={detailOpen}>
+        <Pressable style={styles.sheetBackdrop} onPress={() => setDetailOpen(false)} />
+        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, spacing.screen) }]}>
+          <View style={styles.sheetHandle} />
+          <View style={styles.sheetHeadingRow}>
+            <Text numberOfLines={2} style={styles.sheetTitle}>{activeTitle}</Text>
+            <Pressable accessibilityLabel="Close history" accessibilityRole="button" onPress={() => setDetailOpen(false)} style={styles.closeButton}>
+              <Text style={styles.closeButtonText}>Close</Text>
+            </Pressable>
           </View>
-        ) : null}
-      </ScrollView>
+          <FlatList
+            contentContainerStyle={styles.historyDetailList}
+            data={messages}
+            keyExtractor={(message) => message.id}
+            ListEmptyComponent={loading ? <ActivityIndicator color={colors.primary} size="large" /> : null}
+            renderItem={({ item: message }) => (
+              <View key={message.id} style={message.role === "user" ? styles.userBubble : styles.aiBubble}>
+                <Text style={styles.bubbleText}>{message.content}</Text>
+                {message.role === "assistant" ? (
+                  <Pressable accessibilityRole="button" onPress={() => void Clipboard.setStringAsync(message.content)} style={styles.inlineCopyButton}>
+                    <Text style={styles.inlineCopyText}>Copy</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            )}
+            showsVerticalScrollIndicator={false}
+            style={styles.flex}
+          />
+        </View>
+      </Modal>
     </Shell>
   );
 }
@@ -832,15 +998,43 @@ function TemplatesScreen({
     const hasBugTemplate = templates.some((template) => template.id === bugTemplate.id);
     return hasBugTemplate ? templates : [bugTemplate, ...templates];
   }, [templates]);
+  const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<RewriteTemplate | null>(null);
   const insets = useSafeAreaInsets();
+  const visibleTemplates = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return allTemplates;
+    return allTemplates.filter((template) =>
+      [template.title, template.category, template.tone, template.body]
+        .some((value) => value.toLowerCase().includes(query)),
+    );
+  }, [allTemplates, search]);
 
   return (
     <Shell title="Templates" subtitle="Library">
-      <ScrollView contentContainerStyle={styles.content}>
-        {allTemplates.map((template) => (
+      <FlatList
+        contentContainerStyle={styles.content}
+        data={visibleTemplates}
+        keyExtractor={(template) => template.id}
+        ListHeaderComponent={(
+          <TextInput
+            accessibilityLabel="Search templates"
+            autoCapitalize="none"
+            onChangeText={setSearch}
+            placeholder="Search templates"
+            placeholderTextColor={colors.muted}
+            style={styles.input}
+            value={search}
+          />
+        )}
+        ListEmptyComponent={(
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>No matching templates</Text>
+            <Text style={styles.emptyCopy}>Try a title, category, or tone.</Text>
+          </View>
+        )}
+        renderItem={({ item: template }) => (
           <Pressable
-            key={template.id}
             onPress={() => setSelected(template)}
             style={styles.templateCard}
           >
@@ -848,8 +1042,10 @@ function TemplatesScreen({
             <Text style={styles.templateTitle}>{template.title}</Text>
             <Text style={styles.templateBody}>{template.body}</Text>
           </Pressable>
-        ))}
-      </ScrollView>
+        )}
+        showsVerticalScrollIndicator={false}
+        style={styles.flex}
+      />
       <Modal
         animationType="slide"
         onRequestClose={() => setSelected(null)}
@@ -882,20 +1078,55 @@ function TemplatesScreen({
 function AccountSettings({
   session,
   usage,
-  onUpgrade,
+  profile,
   onSignOut,
+  onRefresh,
+  refreshing,
   preferences,
   preferenceOptions,
   onPreferencesChange,
+  onOpenPlans,
 }: {
   session: AppSession;
   usage: UsageSummary | null;
-  onUpgrade: () => void;
+  profile: WorkspaceProfile | null;
   onSignOut: () => void;
+  onRefresh: () => void;
+  refreshing: boolean;
   preferences: UserPreferences;
   preferenceOptions: PreferenceOptions;
   onPreferencesChange: (preferences: UserPreferences) => void;
+  onOpenPlans: () => void;
 }) {
+  const periodEnd = profile?.currentPeriodEnd
+    ? new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short", year: "numeric" }).format(new Date(profile.currentPeriodEnd))
+    : null;
+  const planName = usage?.creditBalance
+    ? formatPlan(usage.creditBalance.plan)
+    : formatPlan(usage?.plan);
+  const usageSummary = usage?.creditBalance
+    ? `${usage.creditBalance.available} of ${usage.creditBalance.allowance} credits remaining`
+    : `${usage?.rewriteRemaining ?? 0} daily rewrites remaining`;
+
+  function requestDeletion() {
+    Alert.alert(
+      "Request account deletion?",
+      "This starts a deletion request for your ProPhrase account and associated data. Some billing or fraud-prevention records may be retained where legally required.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Continue",
+          style: "destructive",
+          onPress: () => {
+            const subject = encodeURIComponent("ProPhrase account deletion request");
+            const body = encodeURIComponent(`Please delete my ProPhrase account and associated data.\n\nAccount email: ${session.email}\nUser ID: ${session.userId}`);
+            void openExternalUrl(`mailto:${appConfig.privacyEmail}?subject=${subject}&body=${body}`);
+          },
+        },
+      ],
+    );
+  }
+
   return (
     <Shell title="Account" subtitle="Settings">
       <ScrollView contentContainerStyle={styles.content}>
@@ -906,9 +1137,16 @@ function AccountSettings({
           <Text style={styles.profileName}>{session.name}</Text>
           <Text style={styles.profileEmail}>{session.email}</Text>
         </View>
-        <View style={styles.settingsCard}>
+        <Button
+          title={planName === "Free" ? "Upgrade to Plus or Pro" : "Manage plan and billing"}
+          variant="accent"
+          onPress={onOpenPlans}
+        />
+        <ExpandableCard title="Plan and usage" summary={`${planName} · ${usageSummary}`}>
           <Text style={styles.settingLabel}>Plan</Text>
-          <Text style={styles.settingValue}>{usage?.creditBalance ? formatPlan(usage.creditBalance.plan) : formatPlan(usage?.plan)}</Text>
+          <Text style={styles.settingValue}>{planName}</Text>
+          {profile?.subscriptionStatus ? <Text style={styles.settingMeta}>Status: {profile.subscriptionStatus.replaceAll("_", " ")}</Text> : null}
+          {periodEnd ? <Text style={styles.settingMeta}>Current period ends {periodEnd}</Text> : null}
           <View style={styles.divider} />
           <Text style={styles.settingLabel}>{usage?.creditBalance ? "Credits" : "Daily rewrites"}</Text>
           <Text style={styles.settingValue}>
@@ -918,16 +1156,38 @@ function AccountSettings({
           </Text>
           <View style={styles.divider} />
           <Text style={styles.settingLabel}>Universal Copy</Text>
-          <Text style={styles.settingValue}>One-device claim mode</Text>
-        </View>
-        <PreferenceSettingsPanel
-          onUpdate={onPreferencesChange}
-          options={preferenceOptions}
-          preferences={preferences}
-          token={session.accessToken}
-        />
-        <Button title="Upgrade" onPress={onUpgrade} />
+          <Text style={styles.settingValue}>One trusted-device claim</Text>
+          <Text style={styles.settingMeta}>Available copies expire after five minutes.</Text>
+          <View style={styles.divider} />
+          <Button
+            title={planName === "Free" ? "View upgrade plans" : "Manage billing"}
+            variant="accent"
+            onPress={onOpenPlans}
+          />
+        </ExpandableCard>
+        <ExpandableCard
+          title="Writing preferences"
+          summary="Quick Styles, Outcome favorites and defaults"
+        >
+          <PreferenceSettingsPanel
+            onUpdate={onPreferencesChange}
+            options={preferenceOptions}
+            preferences={preferences}
+            token={session.accessToken}
+          />
+        </ExpandableCard>
+        <ExpandableCard
+          title="Account and support"
+          summary="Refresh account, legal information, help and deletion"
+        >
+          <Button disabled={refreshing} title={refreshing ? "Refreshing account..." : "Refresh plan and credits"} variant="secondary" onPress={onRefresh} />
+          <Button title="Privacy Policy" variant="secondary" onPress={() => void openExternalUrl(appConfig.privacyPolicyUrl)} />
+          <Button title="Terms of Service" variant="secondary" onPress={() => void openExternalUrl(appConfig.termsUrl)} />
+          <Button title="Help and support" variant="secondary" onPress={() => void openExternalUrl(`mailto:${appConfig.supportEmail}?subject=${encodeURIComponent("ProPhrase mobile support")}`)} />
+          <Button title="Request account deletion" variant="ghost" onPress={requestDeletion} />
+        </ExpandableCard>
         <Button title="Sign out" variant="secondary" onPress={onSignOut} />
+        <Text style={styles.versionText}>ProPhrase {Constants.expoConfig?.version ?? "1.0.0"}</Text>
       </ScrollView>
     </Shell>
   );
@@ -981,6 +1241,7 @@ function MainApp({
   initialThreads,
   initialTemplates,
   initialUsage,
+  initialProfile,
   deviceId,
   deviceLabel,
   onSignOut,
@@ -994,6 +1255,7 @@ function MainApp({
   initialThreads: ThreadSummary[];
   initialTemplates: RewriteTemplate[];
   initialUsage: UsageSummary | null;
+  initialProfile: WorkspaceProfile | null;
   deviceId: string;
   deviceLabel: string;
   onSignOut: () => void;
@@ -1005,31 +1267,41 @@ function MainApp({
   const [threads, setThreads] = useState(initialThreads);
   const [templates] = useState(initialTemplates);
   const [usage, setUsage] = useState(initialUsage);
-  const [upgradeOpen, setUpgradeOpen] = useState(false);
-  const [upgradeBusy, setUpgradeBusy] = useState(false);
-  const [limitMessage, setLimitMessage] = useState("");
+  const [profile, setProfile] = useState(initialProfile);
+  const [refreshingAccount, setRefreshingAccount] = useState(false);
+  const [rewriteNotice, setRewriteNotice] = useState<RewriteNotice | null>(null);
   const [templateDraft, setTemplateDraft] = useState<RewriteTemplate | null>(null);
   const [preferences, setPreferences] = useState(initialPreferences);
+  const [billingVisible, setBillingVisible] = useState(false);
 
-  function openUpgrade(message?: string) {
-    if (message) setLimitMessage(message);
-    setUpgradeOpen(true);
+  function showPlanLimit(message?: string) {
+    setRewriteNotice(planLimitNotice(message || "Your current plan does not include this action."));
   }
 
-  async function handlePlan(plan: "plus" | "pro", interval: "monthly" | "annual") {
-    setUpgradeBusy(true);
+  async function refreshWorkspace(showConfirmation = false) {
+    setRefreshingAccount(true);
     try {
-      await Linking.openURL(`${pricingUrl()}?plan=${plan}&interval=${interval}`);
-    } catch {
-      Alert.alert(
-        "Checkout needs attention",
-        "We opened pricing so you can complete payment securely.",
-      );
-      await Linking.openURL(`${pricingUrl()}?plan=${plan}&interval=${interval}`);
+      const workspace = await loadWorkspace(session.accessToken);
+      setUsage(workspace.usage);
+      setProfile(workspace.profile);
+      setThreads(workspace.threads ?? []);
+      setPreferences(workspace.preferences.preferences);
+      if (showConfirmation) Alert.alert("Account refreshed", "Your plan, credits, history, and preferences are up to date.");
+    } catch (caught) {
+      if (showConfirmation) {
+        Alert.alert("Refresh failed", caught instanceof Error ? caught.message : "Please try again.");
+      }
     } finally {
-      setUpgradeBusy(false);
+      setRefreshingAccount(false);
     }
   }
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") void refreshWorkspace(false);
+    });
+    return () => subscription.remove();
+  }, [session.accessToken]);
 
   function useTemplate(template: RewriteTemplate) {
     setTemplateDraft(template);
@@ -1051,7 +1323,9 @@ function MainApp({
           setView={setView}
           deviceId={deviceId}
           deviceLabel={deviceLabel}
-          onOpenUpgrade={openUpgrade}
+          onPlanLimit={showPlanLimit}
+          onRewriteError={(error) => setRewriteNotice(classifyRewriteError(error))}
+          onOpenPlans={() => setBillingVisible(true)}
           templateDraft={templateDraft}
           onTemplateDraftUsed={() => setTemplateDraft(null)}
           planFeatureGatingEnabled={planFeatureGatingEnabled}
@@ -1062,6 +1336,8 @@ function MainApp({
       ) : null}
       {view === "outcome" ? (
         <OutcomeScreen
+          deviceId={deviceId}
+          deviceLabel={deviceLabel}
           options={preferenceOptions}
           preferences={preferences}
           session={session}
@@ -1077,28 +1353,29 @@ function MainApp({
         <AccountSettings
           session={session}
           usage={usage}
-          onUpgrade={() => openUpgrade()}
+          profile={profile}
           onSignOut={onSignOut}
+          onRefresh={() => void refreshWorkspace(true)}
+          refreshing={refreshingAccount}
           preferences={preferences}
           preferenceOptions={preferenceOptions}
           onPreferencesChange={setPreferences}
+          onOpenPlans={() => setBillingVisible(true)}
         />
       ) : null}
       <BottomNav view={view} setView={setView} />
-      <UpgradeFlow
-        visible={upgradeOpen}
-        busy={upgradeBusy}
-        onSelect={handlePlan}
-        onClose={() => setUpgradeOpen(false)}
+      <RewriteNoticeModal
+        notice={rewriteNotice}
+        onClose={() => setRewriteNotice(null)}
       />
-      <LimitReachedModal
-        visible={Boolean(limitMessage)}
-        message={limitMessage}
-        onUpgrade={() => {
-          setLimitMessage("");
-          setUpgradeOpen(true);
-        }}
-        onClose={() => setLimitMessage("")}
+      <BillingModal
+        currentPlan={usage?.creditBalance?.plan ?? usage?.plan ?? profile?.plan ?? "free"}
+        enabled={appConfig.razorpayCheckoutEnabled}
+        onClose={() => setBillingVisible(false)}
+        onCompleted={() => refreshWorkspace(false)}
+        token={session.accessToken}
+        user={{ email: session.email, name: session.name }}
+        visible={billingVisible}
       />
     </View>
   );
@@ -1107,17 +1384,25 @@ function MainApp({
 export default function App() {
   const [screen, setScreen] = useState<ViewName>("splash");
   const [email, setEmail] = useState("");
-  const [authLoading, setAuthLoading] = useState<"google" | "magic" | null>(null);
+  const [password, setPassword] = useState("");
+  const [authLoading, setAuthLoading] = useState<"apple" | "google" | "magic" | "password" | null>(null);
   const [session, setSession] = useState<AppSession | null>(null);
   const [selectedTone, setSelectedTone] = useState<Tone>("Professional");
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [templates, setTemplates] = useState<RewriteTemplate[]>([]);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
+  const [profile, setProfile] = useState<WorkspaceProfile | null>(null);
   const [planFeatureGatingEnabled, setPlanFeatureGatingEnabled] = useState(false);
   const [preferences, setPreferences] = useState<UserPreferences | null>(null);
   const [preferenceOptions, setPreferenceOptions] = useState<PreferenceOptions | null>(null);
   const [deviceId, setDeviceId] = useState("");
   const [deviceLabel, setDeviceLabel] = useState("Mobile device");
+  const [sessionRestored, setSessionRestored] = useState(false);
+  const [splashElapsed, setSplashElapsed] = useState(false);
+  const [workspaceBusy, setWorkspaceBusy] = useState(false);
+  const [workspaceError, setWorkspaceError] = useState("");
+  const authEpochRef = useRef(0);
+  const processedAuthCallbacksRef = useRef(new Set<string>());
   const googleClientId =
     Platform.OS === "ios"
       ? appConfig.googleIosClientId
@@ -1134,9 +1419,15 @@ export default function App() {
   });
 
   useEffect(() => {
-    const timer = setTimeout(() => setScreen("onboarding-value"), 1100);
+    const timer = setTimeout(() => setSplashElapsed(true), 900);
     return () => clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    if (sessionRestored && splashElapsed && screen === "splash" && !session) {
+      setScreen("onboarding-value");
+    }
+  }, [screen, session, sessionRestored, splashElapsed]);
 
   useEffect(() => {
     let active = true;
@@ -1157,18 +1448,27 @@ export default function App() {
     let active = true;
 
     async function restoreSession() {
-      const {
-        data: { session: currentSession },
-      } = await supabase.auth.getSession();
-      if (active && currentSession) {
-        await hydrateFromSession(currentSession);
+      try {
+        const {
+          data: { session: currentSession },
+        } = await supabase.auth.getSession();
+        if (active && currentSession) {
+          await hydrateFromSession(currentSession);
+        }
+      } finally {
+        if (active) setSessionRestored(true);
       }
     }
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      if (nextSession) void hydrateFromSession(nextSession);
+    } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      if (nextSession) {
+        void hydrateFromSession(nextSession);
+      } else if (event === "SIGNED_OUT") {
+        authEpochRef.current += 1;
+        clearAuthenticatedState();
+      }
     });
 
     void restoreSession();
@@ -1202,35 +1502,29 @@ export default function App() {
   }, []);
 
   async function createSessionFromUrl(url: string) {
-    const query = url.includes("?")
-      ? url.slice(url.indexOf("?") + 1).split("#")[0]
-      : "";
-    const fragment = url.includes("#") ? url.slice(url.indexOf("#") + 1) : "";
-    const params = new URLSearchParams(
-      [query, fragment].filter(Boolean).join("&"),
-    );
-    const authError = params.get("error_description") ?? params.get("error");
-    if (authError) throw new Error(authError);
+    const callback = parseAuthCallback(url, getAuthRedirectUrl());
+    if (!callback) return false;
 
-    const code = params.get("code");
-    if (code) {
-      const { error } = await supabase.auth.exchangeCodeForSession(code);
-      if (error) throw error;
-      return;
+    if (processedAuthCallbacksRef.current.has(callback.code)) return true;
+    processedAuthCallbacksRef.current.add(callback.code);
+
+    const { error } = await supabase.auth.exchangeCodeForSession(callback.code);
+    if (error) {
+      processedAuthCallbacksRef.current.delete(callback.code);
+      const {
+        data: { session: currentSession },
+      } = await supabase.auth.getSession();
+      if (currentSession) return true;
+      throw error;
     }
-
-    const accessToken = params.get("access_token");
-    const refreshToken = params.get("refresh_token");
-    if (!accessToken || !refreshToken) return;
-
-    const { error } = await supabase.auth.setSession({
-      access_token: accessToken,
-      refresh_token: refreshToken,
-    });
-    if (error) throw error;
+    setTimeout(() => processedAuthCallbacksRef.current.delete(callback.code), 60_000);
+    return true;
   }
 
   async function hydrateFromSession(nextSession: Session) {
+    const authEpoch = ++authEpochRef.current;
+    setWorkspaceBusy(true);
+    setWorkspaceError("");
     const metadata = nextSession.user.user_metadata ?? {};
     const name =
       typeof metadata.full_name === "string"
@@ -1242,12 +1536,23 @@ export default function App() {
       accessToken: nextSession.access_token,
       email: nextSession.user.email ?? "",
       name,
+      userId: nextSession.user.id,
     };
     setSession(nextAppSession);
 
     try {
       const workspace = await loadWorkspace(nextSession.access_token);
+      const {
+        data: { session: currentSession },
+      } = await supabase.auth.getSession();
+      if (
+        authEpochRef.current !== authEpoch ||
+        currentSession?.user.id !== nextSession.user.id
+      ) {
+        return;
+      }
       setUsage(workspace.usage);
+      setProfile(workspace.profile);
       setPlanFeatureGatingEnabled(workspace.planFeatureGatingEnabled);
       setThreads(workspace.threads ?? []);
       setTemplates(workspace.templates ?? []);
@@ -1263,9 +1568,19 @@ export default function App() {
         email: workspace.user?.email || nextAppSession.email,
       });
       setScreen(workspace.preferences.onboardingRequired ? "quick-styles" : "home");
-    } catch {
-      Alert.alert("Workspace unavailable", "Please check your API URL and sign in again.");
+    } catch (caught) {
+      if (authEpochRef.current === authEpoch) {
+        setWorkspaceError(caught instanceof Error ? caught.message : "Please check your connection and try again.");
+      }
+    } finally {
+      if (authEpochRef.current === authEpoch) setWorkspaceBusy(false);
     }
+  }
+
+  async function retryWorkspace() {
+    const { data } = await supabase.auth.getSession();
+    if (data.session) await hydrateFromSession(data.session);
+    else await signOut();
   }
 
   async function sendMagicLink() {
@@ -1284,6 +1599,24 @@ export default function App() {
       return;
     }
     Alert.alert("Check your email", "Open the magic link on this phone to continue.");
+  }
+
+  async function signInWithPassword() {
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail || password.length < 6) return;
+    setAuthLoading("password");
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: trimmedEmail,
+        password,
+      });
+      if (error) throw error;
+      setPassword("");
+    } catch (caught) {
+      Alert.alert("Sign in failed", caught instanceof Error ? caught.message : "Please check your credentials.");
+    } finally {
+      setAuthLoading(null);
+    }
   }
 
   async function signInWithGoogle() {
@@ -1332,7 +1665,8 @@ export default function App() {
 
       const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
       if (result.type === "success") {
-        await createSessionFromUrl(result.url);
+        const handled = await createSessionFromUrl(result.url);
+        if (!handled) throw new Error("Google returned an unexpected callback URL.");
       }
     } catch (error) {
       Alert.alert(
@@ -1344,15 +1678,88 @@ export default function App() {
     }
   }
 
-  async function signOut() {
-    await supabase.auth.signOut();
+  async function signInWithApple() {
+    if (Platform.OS !== "ios") return;
+    setAuthLoading("apple");
+    try {
+      if (!(await AppleAuthentication.isAvailableAsync())) {
+        throw new Error("Sign in with Apple is not available on this device.");
+      }
+
+      const rawNonce = Crypto.randomUUID();
+      const hashedNonce = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        rawNonce,
+      );
+      const credential = await AppleAuthentication.signInAsync({
+        nonce: hashedNonce,
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+      });
+      if (!credential.identityToken) {
+        throw new Error("Apple did not return an identity token.");
+      }
+
+      const { error } = await supabase.auth.signInWithIdToken({
+        provider: "apple",
+        token: credential.identityToken,
+        nonce: rawNonce,
+      });
+      if (error) throw error;
+
+      const fullName = [credential.fullName?.givenName, credential.fullName?.familyName]
+        .filter(Boolean)
+        .join(" ");
+      if (fullName) {
+        await supabase.auth.updateUser({ data: { full_name: fullName } });
+      }
+    } catch (caught) {
+      const errorCode = (caught as { code?: string }).code;
+      if (errorCode !== "ERR_REQUEST_CANCELED") {
+        Alert.alert(
+          "Apple sign-in failed",
+          caught instanceof Error ? caught.message : "Please try again.",
+        );
+      }
+    } finally {
+      setAuthLoading(null);
+    }
+  }
+
+  function clearAuthenticatedState() {
     setSession(null);
     setUsage(null);
+    setProfile(null);
     setThreads([]);
     setTemplates([]);
     setPreferences(null);
     setPreferenceOptions(null);
+    setWorkspaceError("");
     setScreen("onboarding-value");
+  }
+
+  async function signOut() {
+    authEpochRef.current += 1;
+    clearAuthenticatedState();
+
+    const { error } = await supabase.auth.signOut({ scope: "global" });
+    if (error) await supabase.auth.signOut({ scope: "local" });
+  }
+
+  if (workspaceError && session) {
+    return (
+      <SafeAreaProvider>
+        <StatusBar style="dark" />
+        <WorkspaceErrorScreen
+          busy={workspaceBusy}
+          message={workspaceError}
+          onRetry={() => void retryWorkspace()}
+          onSignOut={() => void signOut()}
+        />
+      </SafeAreaProvider>
+    );
   }
 
   if (screen === "splash") {
@@ -1391,8 +1798,12 @@ export default function App() {
           <OnboardingGetStarted
             email={email}
             setEmail={setEmail}
+            password={password}
+            setPassword={setPassword}
             authLoading={authLoading}
+            onApple={signInWithApple}
             onGoogle={signInWithGoogle}
+            onPassword={signInWithPassword}
             onStart={sendMagicLink}
           />
         ) : (
@@ -1414,6 +1825,7 @@ export default function App() {
         initialThreads={threads}
         initialTemplates={templates}
         initialUsage={usage}
+        initialProfile={profile}
         deviceId={deviceId}
         deviceLabel={deviceLabel}
         onSignOut={signOut}
@@ -1564,6 +1976,10 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 16,
   },
+  appleButton: {
+    height: 54,
+    width: "100%",
+  },
   googleButton: {
     minHeight: 54,
     flexDirection: "row",
@@ -1661,6 +2077,24 @@ const styles = StyleSheet.create({
   headerTitleWrap: {
     flex: 1,
     minWidth: 0,
+  },
+  headerActions: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+  },
+  upgradePill: {
+    alignItems: "center",
+    backgroundColor: colors.accent,
+    borderRadius: 999,
+    justifyContent: "center",
+    minHeight: 38,
+    paddingHorizontal: 13,
+  },
+  upgradePillText: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: "800",
   },
   headerTitle: {
     color: colors.primary,
@@ -1915,34 +2349,21 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 23,
   },
-  planCard: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 20,
+  alertHint: {
+    color: colors.text,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  errorStateCard: {
     backgroundColor: colors.surfaceCard,
-    padding: 18,
-  },
-  planCardFeatured: {
-    borderColor: colors.accent,
-    backgroundColor: colors.surfaceWarm,
-  },
-  planName: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: "900",
-    letterSpacing: 1.6,
-    textTransform: "uppercase",
-  },
-  planPrice: {
-    marginTop: 8,
-    color: colors.primary,
-    fontSize: 34,
-    fontWeight: "900",
-  },
-  planMeta: {
-    marginTop: 4,
-    color: colors.muted,
-    fontSize: 14,
+    borderColor: colors.border,
+    borderRadius: 24,
+    borderWidth: 1,
+    gap: 12,
+    maxWidth: 520,
+    padding: 22,
+    width: "100%",
+    ...shadow,
   },
   historyRow: {
     borderWidth: 1,
@@ -1982,6 +2403,45 @@ const styles = StyleSheet.create({
   detailCard: {
     gap: 12,
     marginTop: 8,
+  },
+  sheetHeadingRow: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 12,
+    justifyContent: "space-between",
+  },
+  closeButton: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceLow,
+    borderRadius: 12,
+    justifyContent: "center",
+    minHeight: 44,
+    paddingHorizontal: 14,
+  },
+  closeButtonText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  historyDetailList: {
+    gap: 12,
+    paddingBottom: 12,
+    paddingTop: 16,
+  },
+  inlineCopyButton: {
+    alignSelf: "flex-start",
+    borderColor: colors.border,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginTop: 10,
+    minHeight: 36,
+    paddingHorizontal: 14,
+    justifyContent: "center",
+  },
+  inlineCopyText: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "800",
   },
   templateCard: {
     borderWidth: 1,
@@ -2060,6 +2520,136 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: 17,
     fontWeight: "800",
+  },
+  settingMeta: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 4,
+    textTransform: "capitalize",
+  },
+  expandableCard: {
+    backgroundColor: colors.surfaceCard,
+    borderColor: colors.border,
+    borderRadius: 20,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  expandableHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 12,
+    minHeight: 76,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+  },
+  expandableTitleWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  expandableTitle: {
+    color: colors.primary,
+    fontSize: 17,
+    fontWeight: "900",
+  },
+  expandableSummary: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 4,
+  },
+  expandableChevron: {
+    color: colors.primary,
+    fontSize: 26,
+    fontWeight: "500",
+    textAlign: "center",
+    width: 30,
+  },
+  expandableBody: {
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+    gap: 10,
+    padding: 18,
+  },
+  accountSection: {
+    backgroundColor: colors.surfaceCard,
+    borderColor: colors.border,
+    borderRadius: 20,
+    borderWidth: 1,
+    gap: 10,
+    padding: 18,
+  },
+  accountSectionTitle: {
+    color: colors.primary,
+    fontSize: 18,
+    fontWeight: "900",
+    marginBottom: 2,
+  },
+  versionText: {
+    color: colors.muted,
+    fontSize: 12,
+    textAlign: "center",
+  },
+  legalRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "center",
+  },
+  legalLink: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "800",
+    textDecorationLine: "underline",
+  },
+  legalDot: {
+    color: colors.muted,
+    fontSize: 12,
+  },
+  universalCard: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceWarm,
+    borderColor: colors.accent,
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    padding: 15,
+  },
+  universalCopyWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  universalEyebrow: {
+    color: colors.accentDark,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 1,
+  },
+  universalPreview: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 20,
+    marginTop: 4,
+  },
+  universalMeta: {
+    color: colors.muted,
+    fontSize: 11,
+    marginTop: 4,
+  },
+  universalPasteButton: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    justifyContent: "center",
+    minHeight: 44,
+    paddingHorizontal: 16,
+  },
+  universalPasteText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "900",
   },
   bottomNav: {
     position: "absolute",
